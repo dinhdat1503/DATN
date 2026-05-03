@@ -1,0 +1,51 @@
+# ============================================================
+# EXP 2 — Có tiền xử lý ảnh, KHÔNG có augmentation mất cân bằng
+# Pipeline tiền xử lý: ROI Crop → Ben Graham → CLAHE
+# Mất cân bằng: chỉ dùng pos_weight trong BCE Loss
+# Mục tiêu: Đo đóng góp của tiền xử lý ảnh so với EXP 1
+# ============================================================
+experiment_name: exp_2_cnn_preprocess_no_aug
+description: "EXP 2 — CNN | ROI+BenGraham+CLAHE, không MixUp/CutMix"
+model_type: cnn
+
+splits_dir: archive/splits_clean
+img_dir: archive/enhanced_images          # ← ẢNH ĐÃ TIỀN XỬ LÝ ĐẦY ĐỦ
+
+model:
+  pretrained: true
+  freeze_backbone: false
+  dropout_cls: 0.3
+  dropout_reg: 0.2
+
+loss:
+  lam: 0.1
+
+training:
+  img_size: 224
+  batch_size: 32
+  num_workers: 4
+  epochs: 20
+  early_stopping_patience: 5
+
+optimizer:
+  name: AdamW
+  lr: 0.0003
+  weight_decay: 0.01
+
+scheduler:
+  name: CosineAnnealingLR
+  T_max: 20
+  eta_min: 0.000001
+
+# Không dùng MixUp/CutMix — chỉ tiền xử lý ảnh
+augmentation:
+  use_mixup: false
+  use_cutmix: false
+  mixup_alpha: 0.4
+  mixup_prob: 0.5
+  cutmix_alpha: 1.0
+  cutmix_prob: 0.5
+
+output:
+  results_dir: results/exp_2_cnn_preprocess_no_aug
+  save_best_model: true

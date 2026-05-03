@@ -1,0 +1,51 @@
+# ============================================================
+# EXP 6 — Swin Transformer | Full Pipeline (tiền xử lý + MixUp/CutMix)
+# So sánh với EXP 3 (CNN) → cùng dữ liệu + aug, khác kiến trúc
+# So sánh với EXP 5 (Swin) → cùng model, thêm MixUp/CutMix
+# ============================================================
+experiment_name: exp_6_swin_preprocess_with_aug
+description: "EXP 6 — Swin-Tiny | ROI+BenGraham+CLAHE + MixUp(α=0.4) + CutMix(α=1.0)"
+model_type: swin
+
+splits_dir: archive/splits_clean
+img_dir: archive/enhanced_images          # ← CÙNG ẢNH VỚI EXP 5
+
+model:
+  pretrained: true
+  variant: tiny
+  freeze_backbone: false
+  dropout_cls: 0.3
+  dropout_reg: 0.2
+
+loss:
+  lam: 0.1
+
+training:
+  img_size: 224
+  batch_size: 16
+  num_workers: 4
+  epochs: 20
+  early_stopping_patience: 5
+
+optimizer:
+  name: AdamW
+  lr: 0.0001
+  weight_decay: 0.05
+
+scheduler:
+  name: CosineAnnealingLR
+  T_max: 20
+  eta_min: 0.000001
+
+# BẬT MixUp và CutMix — khác biệt so với EXP 5
+augmentation:
+  use_mixup: true
+  use_cutmix: true
+  mixup_alpha: 0.4
+  mixup_prob: 0.5
+  cutmix_alpha: 1.0
+  cutmix_prob: 0.5
+
+output:
+  results_dir: results/exp_6_swin_preprocess_with_aug
+  save_best_model: true

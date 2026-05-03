@@ -1,0 +1,45 @@
+{
+  "labels": [
+    "N",
+    "D",
+    "G",
+    "C",
+    "A",
+    "H",
+    "M",
+    "O"
+  ],
+  "class_weights": {
+    "N": 2.0189,
+    "D": 2.0027,
+    "G": 14.6561,
+    "C": 14.4931,
+    "A": 19.7535,
+    "H": 32.803,
+    "M": 21.4221,
+    "O": 3.0198
+  },
+  "age_stats": {
+    "mean": 58.141,
+    "std": 11.2583,
+    "min": 14,
+    "max": 89
+  },
+  "splits": {
+    "train": {
+      "rows": 4462,
+      "patients": 2340
+    },
+    "val": {
+      "rows": 948,
+      "patients": 501
+    },
+    "test": {
+      "rows": 954,
+      "patients": 502
+    }
+  },
+  "total_rows": 6364,
+  "total_patients": 3343,
+  "removed_patients": 28
+}

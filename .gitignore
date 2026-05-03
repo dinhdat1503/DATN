@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Data (quá nặng, không commit)
+archive/ODIR-5K/
+archive/preprocessed_images/
+archive/enhanced_images/
+
+# Results (tạo lại khi train)
+results/
+
+# Kaggle upload staging
+kaggle_upload/odir5k-code/
+*.zip
+
+# Old splits (chưa clean)
+archive/splits/
+archive/full_df.csv
