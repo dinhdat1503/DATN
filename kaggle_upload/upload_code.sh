@@ -6,7 +6,7 @@
 
 set -e  # Dừng nếu có lỗi
 
-PROJECT_ROOT="/media/dinhdat/OD/DOANTOTNGHIEP/DOANTOTNGHIEP"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UPLOAD_DIR="$PROJECT_ROOT/kaggle_upload/odir5k-code"
 SPLITS_DIR="$PROJECT_ROOT/archive/splits_clean"
 
@@ -23,10 +23,12 @@ mkdir -p "$UPLOAD_DIR"
 
 # ------ Bước 2: Copy source code ------
 echo "[2/6] Copy source code..."
-cp -r "$PROJECT_ROOT/src"      "$UPLOAD_DIR/src"
-cp -r "$PROJECT_ROOT/configs"  "$UPLOAD_DIR/configs"
-cp    "$PROJECT_ROOT/train.py"    "$UPLOAD_DIR/"
-cp    "$PROJECT_ROOT/evaluate.py" "$UPLOAD_DIR/"
+cp -r "$PROJECT_ROOT/src"                  "$UPLOAD_DIR/src"
+cp -r "$PROJECT_ROOT/configs"              "$UPLOAD_DIR/configs"
+cp    "$PROJECT_ROOT/train.py"             "$UPLOAD_DIR/"
+cp    "$PROJECT_ROOT/evaluate.py"          "$UPLOAD_DIR/"
+cp    "$PROJECT_ROOT/confusion_analysis.py" "$UPLOAD_DIR/"
+cp    "$PROJECT_ROOT/ensemble_evaluate.py"  "$UPLOAD_DIR/"
 
 # Copy splits_clean vào cùng package
 echo "[3/6] Copy splits_clean..."

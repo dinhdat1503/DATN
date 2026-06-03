@@ -158,7 +158,7 @@ class CutMixCollator:
 
         # ── Bước 6: Tạo hoán vị ngẫu nhiên ───────────────────────────
         n = len(batch)
-        perm = torch.randperm(n)
+        perm = torch.from_numpy(self.rng.permutation(n))
 
         # ── Bước 7: Dán vùng B vào ảnh A (in-place trên bản copy) ─────
         # images[perm] là batch B (đã xáo thứ tự)

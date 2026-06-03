@@ -238,7 +238,7 @@ check("repr chua alpha va prob",
 
 # --- 13. CutMix khác MixUp: pixel gốc vẫn còn trong ảnh ---
 print("\n[13] Kiem tra ban chat CutMix: pixel ngoai vung cat giu nguyen")
-c13 = CutMixCollator(alpha=1.0, prob=1.0, seed=0)
+c13 = CutMixCollator(alpha=1.0, prob=1.0, seed=3)
 # Dùng ảnh khác nhau rõ ràng
 img_A = torch.zeros(3, 64, 64)    # toàn đen
 img_B = torch.ones(3, 64, 64)     # toàn trắng
@@ -276,4 +276,8 @@ else:
         if not ok:
             print(f"   FAIL: {name} [{detail}]")
 print("=" * 60)
-sys.exit(0 if n_fail == 0 else 1)
+
+import unittest
+class TestCutMix(unittest.TestCase):
+    def test_run_suite(self):
+        self.assertEqual(n_fail, 0, f"{n_fail} tests failed in CutMix suite")

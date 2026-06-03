@@ -206,4 +206,8 @@ else:
         if not ok:
             print(f"   FAIL: {name} [{detail}]")
 print("=" * 60)
-sys.exit(0 if n_fail == 0 else 1)
+
+import unittest
+class TestMixUp(unittest.TestCase):
+    def test_run_suite(self):
+        self.assertEqual(n_fail, 0, f"{n_fail} tests failed in MixUp suite")

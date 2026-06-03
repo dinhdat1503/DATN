@@ -1,20 +1,4 @@
-cd /media/dinhdat/OD/DOANTOTNGHIEP/DOANTOTNGHIEP
-git status
-git add README.md .gitignore train.py evaluate.py run_experiment.sh configs src scripts tests notebooks docs kaggle_upload/upload_code.sh archive/splits_clean
-git commit -m "Add training code, configs, docs, and splits"
-git pushcd /media/dinhdat/OD/DOANTOTNGHIEP/DOANTOTNGHIEP
-git status
-git add README.md .gitignore train.py evaluate.py run_experiment.sh configs src scripts tests notebooks docs kaggle_upload/upload_code.sh archive/splits_clean
-git commit -m "Add training code, configs, docs, and splits"
-git pushcd /media/dinhdat/OD/DOANTOTNGHIEP/DOANTOTNGHIEP
-git status
-git add README.md .gitignore train.py evaluate.py run_experiment.sh configs src scripts tests notebooks docs kaggle_upload/upload_code.sh archive/splits_clean
-git commit -m "Add training code, configs, docs, and splits"
-git pushcd /media/dinhdat/OD/DOANTOTNGHIEP/DOANTOTNGHIEP
-git status
-git add README.md .gitignore train.py evaluate.py run_experiment.sh configs src scripts tests notebooks docs kaggle_upload/upload_code.sh archive/splits_clean
-git commit -m "Add training code, configs, docs, and splits"
-git push# Hướng Dẫn Kết Nối Source Code Local → Kaggle và Chạy Thực Nghiệm
+# Hướng Dẫn Kết Nối Source Code Local → Kaggle và Chạy Thực Nghiệm
 
 ---
 

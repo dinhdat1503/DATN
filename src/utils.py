@@ -106,19 +106,27 @@ def denormalize_age(
 def compute_multilabel_metrics(
     preds: torch.Tensor,
     targets: torch.Tensor,
-    threshold: float = 0.5,
+    threshold: float | list[float] | torch.Tensor = 0.5,
 ) -> dict[str, float]:
     """Tính các metrics cho multi-label classification.
 
     Args:
         preds: predicted probabilities [batch, 8]
         targets: ground truth labels [batch, 8]
-        threshold: ngưỡng chuyển probability -> binary
+        threshold: ngưỡng (hoặc danh sách 8 ngưỡng) để chuyển prob -> binary
 
     Returns:
         Dict chứa accuracy, precision, recall, f1 (macro)
     """
-    pred_binary = (preds >= threshold).float()
+    # Chuyển threshold sang Tensor có kích thước phù hợp để so sánh broadcast
+    if isinstance(threshold, (list, np.ndarray)):
+        thresh_tensor = torch.FloatTensor(threshold).to(preds.device)
+    elif isinstance(threshold, torch.Tensor):
+        thresh_tensor = threshold.to(preds.device)
+    else:
+        thresh_tensor = torch.FloatTensor([threshold] * preds.shape[1]).to(preds.device)
+
+    pred_binary = (preds >= thresh_tensor).float()
 
     # Per-label metrics
     tp = (pred_binary * targets).sum(dim=0)
@@ -152,3 +160,45 @@ def compute_multilabel_metrics(
         result[f"f1_{label}"] = f1[i].item()
 
     return result
+
+
+def find_best_thresholds(
+    preds: torch.Tensor,
+    targets: torch.Tensor,
+) -> list[float]:
+    """Tìm ngưỡng (threshold) tối ưu động cho từng class để tối đa hóa F1-score.
+
+    Quét qua các ngưỡng từ 0.05 đến 0.95 với bước nhảy 0.01 độc lập trên tập Validation.
+
+    Args:
+        preds: predicted probabilities [N, 8] từ validation set
+        targets: ground truth nhãn thật [N, 8]
+
+    Returns:
+        Danh sách 8 số thực đại diện cho ngưỡng tối ưu của 8 bệnh.
+    """
+    preds_np = preds.cpu().numpy()
+    targets_np = targets.cpu().numpy()
+    n_classes = preds_np.shape[1]
+    best_thresholds = []
+
+    for c in range(n_classes):
+        best_f1 = -1.0
+        best_thresh = 0.5
+        # Quét dải ngưỡng từ 0.05 đến 0.95
+        for thresh in np.arange(0.05, 0.95, 0.01):
+            pred_binary = (preds_np[:, c] >= thresh).astype(float)
+            tp = np.sum(pred_binary * targets_np[:, c])
+            fp = np.sum(pred_binary * (1 - targets_np[:, c]))
+            fn = np.sum((1 - pred_binary) * targets_np[:, c])
+
+            precision = tp / (tp + fp + 1e-8)
+            recall = tp / (tp + fn + 1e-8)
+            f1 = 2 * precision * recall / (precision + recall + 1e-8)
+
+            if f1 > best_f1:
+                best_f1 = f1
+                best_thresh = float(thresh)
+        best_thresholds.append(best_thresh)
+
+    return best_thresholds

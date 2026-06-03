@@ -35,7 +35,7 @@ from src.loss import MultiTaskLoss
 from src.mixup import MixUpCollator
 from src.models import build_model
 from src.transforms import get_transforms
-from src.utils import LABELS, compute_multilabel_metrics, get_pos_weight_from_metadata, load_metadata
+from src.utils import LABELS, compute_multilabel_metrics, get_pos_weight_from_metadata, load_metadata, find_best_thresholds
 
 # Cố gắng import sklearn cho AUC-ROC
 try:
@@ -63,6 +63,7 @@ def build_train_loader(
     batch_size: int,
     num_workers: int,
     pin_memory: bool,
+    use_weighted_sampler: bool = False,
 ) -> torch.utils.data.DataLoader:
     """Tạo DataLoader cho train set, hỗ trợ MixUp và/hoặc CutMix.
 
@@ -82,11 +83,39 @@ def build_train_loader(
 
     base_kwargs = dict(
         batch_size  = batch_size,
-        shuffle     = True,
         num_workers = num_workers,
         pin_memory  = pin_memory,
         drop_last   = True,
     )
+
+    if use_weighted_sampler:
+        import numpy as np
+        from torch.utils.data import WeightedRandomSampler
+        
+        # 1. Lấy ma trận nhãn nhị phân [N, 8] của tập train
+        labels_matrix = dataset.df[LABELS].values.astype(float)
+        
+        # 2. Tính số lượng ảnh thực tế của từng lớp bệnh
+        class_counts = labels_matrix.sum(axis=0)
+        
+        # 3. Tính trọng số cho từng lớp (tỷ lệ nghịch với số lượng)
+        class_weights = 1.0 / np.maximum(class_counts, 1.0)
+        
+        # 4. Trọng số của mẫu bằng tổng trọng số các lớp nó mang nhãn dương
+        sample_weights = np.dot(labels_matrix, class_weights)
+        sample_weights = np.maximum(sample_weights, 1e-5)  # Tránh lỗi chia cho 0
+        
+        sampler = WeightedRandomSampler(
+            weights=sample_weights,
+            num_samples=len(sample_weights),
+            replacement=True
+        )
+        base_kwargs["sampler"] = sampler
+        base_kwargs["shuffle"] = False
+        print(f"[Loader] Khởi chạy WeightedRandomSampler. Trọng số lớp: "
+              f"{dict(zip(LABELS, np.round(class_weights, 4)))}")
+    else:
+        base_kwargs["shuffle"] = True
 
     if use_mixup and use_cutmix:
         # Xen kẽ ngẫu nhiên: 50% batch dùng MixUp, 50% CutMix
@@ -222,6 +251,7 @@ def run_epoch(
     mode: str,
     age_mean: float,
     age_std: float,
+    threshold: float | list[float] | torch.Tensor = 0.5,
 ) -> dict:
     """Chạy một epoch (train hoặc val/test).
 
@@ -296,7 +326,7 @@ def run_epoch(
     import torch as _t
     probs_t   = _t.FloatTensor(all_probs)
     targets_t = _t.FloatTensor(all_targets)
-    ml_metrics = compute_multilabel_metrics(probs_t, targets_t, threshold=0.5)
+    ml_metrics = compute_multilabel_metrics(probs_t, targets_t, threshold=threshold)
     for k, v in ml_metrics.items():
         metrics[f"{mode}_{k}"] = v
 
@@ -309,6 +339,31 @@ def run_epoch(
     metrics[f"{mode}_age_pearson"] = age_m["pearson"]
 
     return metrics
+
+
+def get_predictions(
+    model: torch.nn.Module,
+    loader: torch.utils.data.DataLoader,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Thu thập toàn bộ sigmoid probabilities và targets từ DataLoader.
+
+    Dùng riêng cho việc quét tìm ngưỡng tối ưu động trên tập Validation.
+    """
+    model.eval()
+    all_probs = []
+    all_targets = []
+    with torch.no_grad():
+        for batch in loader:
+            images = batch["image"].to(device)
+            labels = batch["labels"].to(device)
+            output = model(images)
+            logits = output["logits"]
+            probs = torch.sigmoid(logits).cpu().tolist()
+            all_probs.extend(probs)
+            all_targets.extend(labels.cpu().tolist())
+
+    return torch.FloatTensor(all_probs), torch.FloatTensor(all_targets)
 
 
 # ---------------------------------------------------------------------------
@@ -380,11 +435,12 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
         age_std    = dataloaders["train"].dataset.age_std,
     )
     dataloaders["train"] = build_train_loader(
-        dataset     = train_dataset,
-        aug_cfg     = aug_cfg,
-        batch_size  = batch_size,
-        num_workers = num_workers,
-        pin_memory  = pin_memory,
+        dataset              = train_dataset,
+        aug_cfg              = aug_cfg,
+        batch_size           = batch_size,
+        num_workers          = num_workers,
+        pin_memory           = pin_memory,
+        use_weighted_sampler = tr_cfg.get("use_weighted_sampler", False),
     )
     print(f"[Loader] Train={len(train_dataset)}, "
           f"Val={len(dataloaders['val'].dataset)}, "
@@ -399,8 +455,9 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
         freeze_backbone = m_cfg.get("freeze_backbone", False),
         dropout_cls     = m_cfg.get("dropout_cls", 0.3),
         dropout_reg     = m_cfg.get("dropout_reg", 0.2),
-        img_size        = tr_cfg.get("img_size", 224),     # Swin cần biết img_size
+        img_size        = tr_cfg.get("img_size", 224),     # Swin/ViT cần biết img_size
         variant         = m_cfg.get("variant", "tiny"),    # 'tiny'|'small'|'base'
+        pretrained_path = m_cfg.get("pretrained_path", None), # Truyền đường dẫn trọng số pre-trained nếu có
     ).to(device)
     print(f"[Model] {model}\n")
 
@@ -542,15 +599,39 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
         ckpt = torch.load(best_path, map_location=device)
         model.load_state_dict(ckpt["model_state"])
 
-        test_m = run_epoch(
+        # 1. Tìm ngưỡng động tối ưu trên tập Validation
+        print("[Dynamic Thresholding] Đang quét tìm ngưỡng tối ưu trên tập Validation...")
+        val_probs, val_targets = get_predictions(model, dataloaders["val"], device)
+        best_thresholds = find_best_thresholds(val_probs, val_targets)
+        print("  → Ngưỡng tối ưu tìm được cho 8 bệnh lý:")
+        from src.utils import get_label_names
+        lbl_names = get_label_names()
+        for idx, lbl in enumerate(LABELS):
+            print(f"    - {lbl} ({lbl_names[lbl]}): {best_thresholds[idx]:.2f}")
+        print()
+
+        # 2. Đánh giá Test với ngưỡng mặc định 0.5
+        test_m_default = run_epoch(
             model, dataloaders["test"], criterion, None,
-            device, "test", age_mean, age_std,
+            device, "test", age_mean, age_std, threshold=0.5
         )
         print(
-            f"  TEST  F1-macro={test_m['test_f1_macro']:.4f} "
-            f"| AUC-ROC={test_m['test_auc_roc']:.4f} "
-            f"| Age MAE={test_m['test_age_mae']:.2f} yrs "
-            f"| Pearson={test_m['test_age_pearson']:.4f}"
+            f"  [NGƯỠNG MẶC ĐỊNH 0.5] "
+            f"TEST F1-macro={test_m_default['test_f1_macro']:.4f} "
+            f"| AUC-ROC={test_m_default['test_auc_roc']:.4f} "
+            f"| Age MAE={test_m_default['test_age_mae']:.2f} yrs"
+        )
+
+        # 3. Đánh giá Test với ngưỡng động tối ưu vừa tìm được
+        test_m_opt = run_epoch(
+            model, dataloaders["test"], criterion, None,
+            device, "test", age_mean, age_std, threshold=best_thresholds
+        )
+        print(
+            f"  [NGƯỠNG TỐI ƯU ĐỘNG]  "
+            f"TEST F1-macro={test_m_opt['test_f1_macro']:.4f} "
+            f"| AUC-ROC={test_m_opt['test_auc_roc']:.4f} "
+            f"| Age MAE={test_m_opt['test_age_mae']:.2f} yrs"
         )
 
         # Lưu test results
@@ -558,8 +639,10 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
         with open(test_results_path, "w") as f:
             json.dump({
                 "experiment": exp_name,
-                "best_val_f1": best_val_f1,
-                **test_m,
+                "best_val_f1_default": best_val_f1,
+                "optimal_thresholds": best_thresholds,
+                "metrics_default_0.5": test_m_default,
+                "metrics_optimal_dynamic": test_m_opt,
             }, f, indent=2)
         print(f"\n  → Kết quả test lưu tại: {test_results_path}")
 

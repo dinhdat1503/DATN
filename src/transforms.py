@@ -6,9 +6,10 @@ Hỗ trợ 2 kích thước input:
   - 384×384: cho Swin Transformer
 
 Train transforms bao gồm:
-  - Geometric: HFlip, VFlip, Rotate, ShiftScaleRotate
-  - Color: ColorJitter, RandomBrightnessContrast
-  - Advanced: CoarseDropout (thay cho Cutout)
+  - Geometric: HFlip (p=0.5), ShiftScaleRotate ≤15° (chuẩn giải phẫu y khoa)
+  - Color: RandomBrightnessContrast / HueSaturationValue (hue_shift=0 — khóa sắc đỏ võng mạc)
+  - Medical: CLAHE (p=0.4, tăng tương phản tổn thương), GaussNoise (p=0.2)
+  - Regularization: GaussianBlur (p=0.2), CoarseDropout (p=0.3)
   - Normalize (ImageNet stats) + ToTensorV2
 
 Val/Test transforms:
@@ -34,19 +35,18 @@ def get_train_transforms(img_size: int = 224) -> A.Compose:
         # Resize
         A.Resize(height=img_size, width=img_size),
 
-        # Geometric augmentations
-        A.HorizontalFlip(p=0.5),
-        A.VerticalFlip(p=0.5),
-        A.RandomRotate90(p=0.5),
+        # Geometric augmentations (Chuẩn y khoa võng mạc)
+        A.HorizontalFlip(p=0.5),  # Rất an toàn: mắt trái đối xứng mắt phải
+        # Đã loại bỏ VerticalFlip và RandomRotate90 vì vi phạm giải phẫu học võng mạc
         A.ShiftScaleRotate(
-            shift_limit=0.1,
-            scale_limit=0.15,
-            rotate_limit=30,
-            border_mode=0,  # BORDER_CONSTANT (đen)
+            shift_limit=0.05,
+            scale_limit=0.1,
+            rotate_limit=15,      # Giới hạn xoay nhẹ mô phỏng bệnh nhân nghiêng đầu khi chụp
+            border_mode=0,        # BORDER_CONSTANT (viền đen)
             p=0.5,
         ),
 
-        # Color augmentations
+        # Color augmentations (Bảo toàn sắc đỏ y khoa)
         A.OneOf([
             A.RandomBrightnessContrast(
                 brightness_limit=0.2,
@@ -54,22 +54,27 @@ def get_train_transforms(img_size: int = 224) -> A.Compose:
                 p=1.0,
             ),
             A.HueSaturationValue(
-                hue_shift_limit=10,
-                sat_shift_limit=20,
-                val_shift_limit=20,
+                hue_shift_limit=0,  # Khóa cứng tông màu Hue để không biến đổi màu đỏ của máu võng mạc
+                sat_shift_limit=15,
+                val_shift_limit=15,
                 p=1.0,
             ),
         ], p=0.5),
 
+        # Tăng cường tương phản cục bộ, làm nổi bật tổn thương võng mạc chuẩn y khoa
+        A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.4),
+
+        # Thêm nhiễu cảm biến camera (tương thích Albumentations cả cũ lẫn mới)
+        A.GaussNoise(std_range=(0.02, 0.1), p=0.2),
+
         A.GaussianBlur(blur_limit=(3, 5), p=0.2),
 
-        # Regularization: CoarseDropout thay cho Cutout
+        # Regularization: CoarseDropout thay cho Cutout (tương thích Albumentations 2.x)
         A.CoarseDropout(
-            max_holes=8,
-            max_height=img_size // 8,
-            max_width=img_size // 8,
-            min_holes=1,
-            fill_value=0,
+            num_holes_range=(1, 8),
+            hole_height_range=(img_size // 16, img_size // 8),
+            hole_width_range=(img_size // 16, img_size // 8),
+            fill=0,
             p=0.3,
         ),
 

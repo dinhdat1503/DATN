@@ -140,7 +140,7 @@ class EfficientNetB0Backbone(nn.Module):
         super().__init__()
 
         # Stem
-        self.stem = ConvBnAct(3, 32, 3, 2, 1)
+        self.stem = ConvBnAct(      3, 32, 3, 2, 1)
 
         # Tính tổng số blocks để stochastic depth
         total_blocks = sum(cfg[2] for cfg in _B0_CONFIG)

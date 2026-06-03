@@ -100,7 +100,7 @@ class MixUpCollator:
 
         # ── Bước 4: Tạo hoán vị ngẫu nhiên của batch ─────────────────
         n = len(batch)
-        perm = torch.randperm(n)   # [N] — chỉ số ngẫu nhiên
+        perm = torch.from_numpy(self.rng.permutation(n))   # [N] — chỉ số ngẫu nhiên
 
         # ── Bước 5: Trộn ảnh ──────────────────────────────────────────
         # images[perm] là batch B (đã xáo thứ tự)

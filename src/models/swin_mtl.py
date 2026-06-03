@@ -86,34 +86,48 @@ class SwinMTL(nn.Module):
     ) -> tuple[nn.Module, int]:
         """Xây backbone Swin, ưu tiên timm → fallback mini ViT."""
 
-        # Mapping tên model timm theo variant và img_size
+        # Mapping tên model timm theo variant và img_size.
+        # Lưu ý: timm chỉ có window12_384 cho base và large.
+        # Tiny/Small dùng window7_224 kèm img_size override — timm tự interpolate PE.
         model_names = {
             ("tiny",  224): "swin_tiny_patch4_window7_224",
-            ("tiny",  384): "swin_tiny_patch4_window12_384",
+            ("tiny",  384): "swin_tiny_patch4_window7_224",   # img_size được override bên dưới
             ("small", 224): "swin_small_patch4_window7_224",
-            ("small", 384): "swin_small_patch4_window12_384",
+            ("small", 384): "swin_small_patch4_window7_224",  # img_size được override bên dưới
             ("base",  224): "swin_base_patch4_window7_224",
-            ("base",  384): "swin_base_patch4_window12_384",
+            ("base",  384): "swin_base_patch4_window12_384",  # weight chuẩn ở 384
         }
         timm_name = model_names.get((variant, img_size), "swin_tiny_patch4_window7_224")
         feature_dim = self.FEATURE_DIMS.get(variant, 768)
 
+        # Tiny/Small ở 384 cần truyền img_size để timm interpolate positional embeddings
+        needs_img_size_override = (variant in ("tiny", "small") and img_size != 224)
+
         try:
             import timm
-            backbone = timm.create_model(
-                timm_name,
-                pretrained=pretrained,
-                num_classes=0,      # Bỏ classifier head của timm
-                global_pool="avg",  # Global Average Pooling → [B, feature_dim]
-            )
+            if needs_img_size_override:
+                backbone = timm.create_model(
+                    timm_name,
+                    pretrained=pretrained,
+                    num_classes=0,
+                    global_pool="avg",
+                    img_size=img_size,   # interpolate positional embeddings
+                )
+            else:
+                backbone = timm.create_model(
+                    timm_name,
+                    pretrained=pretrained,
+                    num_classes=0,
+                    global_pool="avg",
+                )
             print(
-                f"[Model] Swin-{variant.capitalize()} ({timm_name})"
+                f"[Model] Swin-{variant.capitalize()} ({timm_name}, img_size={img_size})"
                 + (" — pretrained ImageNet" if pretrained else " — random init")
             )
             return backbone, backbone.num_features
 
         except Exception as e:
-            pass
+            print(f"[Model] timm lỗi khi tạo '{timm_name}': {e}")
 
         # Fallback: mini ViT-like model cho local testing (không pretrained)
         print(

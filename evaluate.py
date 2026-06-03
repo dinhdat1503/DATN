@@ -41,13 +41,41 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 def load_results(exp_dir: Path) -> dict | None:
-    """Đọc test_results.json từ thư mục thực nghiệm."""
-    results_path = exp_dir / "test_results.json"
-    if not results_path.exists():
-        print(f"  [WARN] Không tìm thấy: {results_path}")
+    """
+    Đọc file kết quả JSON từ thư mục thực nghiệm.
+    Hỗ trợ nhiều tên file: test_results.json, results.json, r*_result.json
+    """
+    # Ưu tiên theo thứ tự
+    candidates = (
+        list(exp_dir.glob("test_results.json"))
+        + list(exp_dir.glob("results.json"))
+        + sorted(exp_dir.glob("r*_result.json"))
+        + sorted(exp_dir.glob("*.json"))
+    )
+    # Lọc bỏ file config.yaml bị lẫn (chỉ lấy .json)
+    candidates = [p for p in candidates if p.suffix == ".json"]
+
+    if not candidates:
+        print(f"  [WARN] Không tìm thấy file JSON nào trong: {exp_dir}")
         return None
+
+    results_path = candidates[0]
+    print(f"  [INFO] Đọc kết quả: {results_path.name}")
     with open(results_path) as f:
-        return json.load(f)
+        data = json.load(f)
+
+    # Chuẩn hóa key: một số file lưu dưới dạng nested {"test": {...}}
+    if "test" in data and isinstance(data["test"], dict):
+        flat = {"experiment": data.get("exp", exp_dir.name)}
+        flat.update({f"test_{k}": v for k, v in data["test"].items()})
+        if "best_val_f1" in data:
+            flat["best_val_f1"] = data["best_val_f1"]
+        return flat
+
+    # Đảm bảo có trường experiment
+    if "experiment" not in data:
+        data["experiment"] = data.get("exp", exp_dir.name)
+    return data
 
 
 def format_value(v, fmt=".4f") -> str:
@@ -228,10 +256,14 @@ def rerun_inference(config_path: str) -> None:
 
     m_cfg = cfg["model"]
     model = build_model(
-        pretrained=False,  # Load từ checkpoint — không cần pretrained
-        freeze_backbone=m_cfg.get("freeze_backbone", False),
-        dropout_cls=m_cfg.get("dropout_cls", 0.3),
-        dropout_reg=m_cfg.get("dropout_reg", 0.2),
+        model_type      = cfg.get("model_type", "cnn"),          # cần thiết để phân biệt CNN vs Swin
+        pretrained      = False,       # Load từ checkpoint — không cần pretrained
+        freeze_backbone = m_cfg.get("freeze_backbone", False),
+        dropout_cls     = m_cfg.get("dropout_cls", 0.3),
+        dropout_reg     = m_cfg.get("dropout_reg", 0.2),
+        img_size        = tr_cfg.get("img_size", 224),            # Swin/ViT cần biết img_size
+        variant         = m_cfg.get("variant", "tiny"),           # tiny|small|base cho Swin
+        pretrained_path = m_cfg.get("pretrained_path", None),
     ).to(device)
 
     ckpt = torch.load(best_path, map_location=device)
@@ -275,9 +307,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--exps", nargs="+",
         default=[
-            "results/exp_1_no_preprocessing",
-            "results/exp_2_preprocess_no_aug",
-            "results/exp_3_preprocess_with_aug",
+            "results/exp_1_cnn_no_preprocess",
+            "results/exp_2_cnn_preprocess_no_aug",
+            "results/exp_3_cnn_preprocess_with_aug",
+            "results/exp_4_retfound_no_preprocess",
+            "results/exp_5_retfound_preprocess_no_aug",
+            "results/exp_6_retfound_preprocess_with_aug",
         ],
         help="Danh sách thư mục thực nghiệm cần so sánh"
     )
