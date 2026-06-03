@@ -214,11 +214,19 @@ class EfficientNetMTL(nn.Module):
 
         self.classification_head = nn.Sequential(
             nn.Dropout(p=dropout_cls),
-            nn.Linear(self.FEATURE_DIM, num_labels),
+            nn.Linear(self.FEATURE_DIM, 512),
+            nn.LayerNorm(512),
+            nn.SiLU(),
+            nn.Dropout(p=dropout_cls),
+            nn.Linear(512, num_labels),
         )
         self.regression_head = nn.Sequential(
             nn.Dropout(p=dropout_reg),
-            nn.Linear(self.FEATURE_DIM, 1),
+            nn.Linear(self.FEATURE_DIM, 256),
+            nn.LayerNorm(256),
+            nn.SiLU(),
+            nn.Dropout(p=dropout_reg),
+            nn.Linear(256, 1),
         )
 
         # Khởi tạo heads

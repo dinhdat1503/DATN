@@ -61,19 +61,20 @@ def get_train_transforms(img_size: int = 224) -> A.Compose:
             ),
         ], p=0.5),
 
-        # Tăng cường tương phản cục bộ, làm nổi bật tổn thương võng mạc chuẩn y khoa
-        A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.4),
-
+        # Đã vô hiệu hóa CLAHE online để tránh double CLAHE với ảnh tiền xử lý enhanced_images
+        # A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.4),
+ 
         # Thêm nhiễu cảm biến camera (tương thích Albumentations cả cũ lẫn mới)
         A.GaussNoise(std_range=(0.02, 0.1), p=0.2),
-
+ 
         A.GaussianBlur(blur_limit=(3, 5), p=0.2),
-
+ 
         # Regularization: CoarseDropout thay cho Cutout (tương thích Albumentations 2.x)
+        # Giảm kích thước vùng đen để không che khuất hoàng điểm / gai thị
         A.CoarseDropout(
             num_holes_range=(1, 8),
-            hole_height_range=(img_size // 16, img_size // 8),
-            hole_width_range=(img_size // 16, img_size // 8),
+            hole_height_range=(img_size // 32, img_size // 16),
+            hole_width_range=(img_size // 32, img_size // 16),
             fill=0,
             p=0.3,
         ),

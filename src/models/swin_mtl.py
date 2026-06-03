@@ -70,11 +70,19 @@ class SwinMTL(nn.Module):
 
         self.classification_head = nn.Sequential(
             nn.Dropout(p=dropout_cls),
-            nn.Linear(self.feature_dim, num_labels),
+            nn.Linear(self.feature_dim, 512),
+            nn.LayerNorm(512),
+            nn.SiLU(),
+            nn.Dropout(p=dropout_cls),
+            nn.Linear(512, num_labels),
         )
         self.regression_head = nn.Sequential(
             nn.Dropout(p=dropout_reg),
-            nn.Linear(self.feature_dim, 1),
+            nn.Linear(self.feature_dim, 256),
+            nn.LayerNorm(256),
+            nn.SiLU(),
+            nn.Dropout(p=dropout_reg),
+            nn.Linear(256, 1),
         )
         self._init_heads()
 

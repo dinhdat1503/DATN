@@ -18,7 +18,7 @@ model:
   dropout_reg: 0.2
 
 loss:
-  lam: 0.1
+  lam: 0.02
 
 training:
   img_size: 224
@@ -26,6 +26,7 @@ training:
   num_workers: 4
   epochs: 20
   early_stopping_patience: 5
+  use_weighted_sampler: false
 
 optimizer:
   name: AdamW

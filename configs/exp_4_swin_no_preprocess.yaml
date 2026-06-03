@@ -17,7 +17,7 @@ model:
   dropout_reg: 0.2
 
 loss:
-  lam: 0.1
+  lam: 0.02
 
 training:
   img_size: 224                            # Swin-Tiny dùng 224×224

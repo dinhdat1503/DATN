@@ -252,6 +252,7 @@ def run_epoch(
     age_mean: float,
     age_std: float,
     threshold: float | list[float] | torch.Tensor = 0.5,
+    scaler: torch.cuda.amp.GradScaler | None = None,
 ) -> dict:
     """Chạy một epoch (train hoặc val/test).
 
@@ -263,6 +264,7 @@ def run_epoch(
         device: CPU hoặc CUDA
         mode: "train" hoặc "val" hoặc "test"
         age_mean, age_std: Để denormalize tuổi khi tính MAE
+        scaler: GradScaler cho mixed precision training
 
     Returns:
         Dict chứa tất cả metrics của epoch.
@@ -289,19 +291,29 @@ def run_epoch(
             labels   = batch["labels"].to(device)
             age_true = batch["age"].to(device)
 
-            # Forward
-            output   = model(images)
-            logits   = output["logits"]
-            age_pred = output["age_pred"]
+            # Auto mixed precision context (autocast)
+            use_amp = (device.type == "cuda")
+            with torch.cuda.amp.autocast(enabled=use_amp):
+                # Forward
+                output   = model(images)
+                logits   = output["logits"]
+                age_pred = output["age_pred"]
 
-            # Loss
-            loss, detail = criterion(logits, labels, age_pred, age_true)
+                # Loss
+                loss, detail = criterion(logits, labels, age_pred, age_true)
 
-            if is_train:
+            if is_train and optimizer is not None:
                 optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                optimizer.step()
+                if scaler is not None and use_amp:
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                    optimizer.step()
 
             # Accumulate
             bs = images.size(0)
@@ -510,6 +522,7 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
     log_path = results_dir / "training_log.csv"
 
     # --- Training Loop ---
+    scaler = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda"))
     n_epochs  = 1 if dry_run else tr_cfg["epochs"]
     patience  = tr_cfg.get("early_stopping_patience", 5)
     best_path = results_dir / "best_model.pth"
@@ -530,7 +543,7 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
         # Train
         train_m = run_epoch(
             model, dataloaders["train"], criterion, optimizer,
-            device, "train", age_mean, age_std,
+            device, "train", age_mean, age_std, scaler=scaler,
         )
 
         # Validate
