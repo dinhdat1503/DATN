@@ -1,0 +1,59 @@
+# ============================================================
+# EXP 7 — Swin Transformer (Tiny) | Advanced Pipeline
+# Nâng cấp ảnh lên 384x384 + Asymmetric Loss + Two-stage Training
+# ============================================================
+experiment_name: exp_7_swin_384_asl_twostage
+description: "EXP 7 — Swin-Tiny | 384x384 + ASL (g_neg=4.0, g_pos=1.0, clip=0.05) + Two-Stage Fine-tuning"
+model_type: swin
+
+splits_dir: archive/splits_clean
+img_dir: archive/enhanced_images
+
+model:
+  pretrained: true
+  variant: tiny
+  freeze_backbone: false
+  dropout_cls: 0.3
+  dropout_reg: 0.2
+
+loss:
+  loss_type: asl
+  gamma_neg: 4.0
+  gamma_pos: 1.0
+  clip: 0.05
+  lam: 0.02
+
+training:
+  img_size: 384
+  batch_size: 16
+  num_workers: 4
+  epochs: 40
+  early_stopping_patience: 8
+  use_weighted_sampler: false
+  # Two-stage fine-tuning config
+  two_stage: true
+  freeze_epochs: 5
+  frozen_lr: 0.001
+  unfrozen_lr: 0.00003
+
+optimizer:
+  name: AdamW
+  lr: 0.0001
+  weight_decay: 0.05
+
+scheduler:
+  name: CosineAnnealingLR
+  T_max: 40
+  eta_min: 0.000001
+
+augmentation:
+  use_mixup: true
+  use_cutmix: true
+  mixup_alpha: 0.4
+  mixup_prob: 0.5
+  cutmix_alpha: 1.0
+  cutmix_prob: 0.5
+
+output:
+  results_dir: results/exp_7_swin_384_asl_twostage
+  save_best_model: true

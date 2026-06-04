@@ -238,6 +238,31 @@ def compute_mae_pearson(
     return {"mae": mae, "pearson": pearson}
 
 
+def build_optimizer_and_scheduler(model, cfg, is_frozen, total_epochs):
+    """Hàm tạo lại Optimizer và Scheduler"""
+    if is_frozen:
+        lr = float(cfg['training'].get('frozen_lr', 1e-3))
+        # Ở Stage 1, chỉ lấy các tham số yêu cầu gradient (tức là MLP heads)
+        params = [p for p in model.parameters() if p.requires_grad]
+        t_max = int(cfg['training'].get('freeze_epochs', 5))
+    else:
+        lr = float(cfg['training'].get('unfrozen_lr', 3e-5))
+        # Ở Stage 2, mọi tham số đều cần gradient
+        params = model.parameters()
+        t_max = total_epochs - int(cfg['training'].get('freeze_epochs', 5))
+
+    optimizer = torch.optim.AdamW(
+        params,
+        lr=lr,
+        weight_decay=float(cfg['optimizer'].get('weight_decay', 0.05))
+    )
+    
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=t_max, eta_min=1e-6
+    )
+    return optimizer, scheduler
+
+
 # ---------------------------------------------------------------------------
 # Train / Validate một epoch
 # ---------------------------------------------------------------------------
@@ -253,6 +278,8 @@ def run_epoch(
     age_std: float,
     threshold: float | list[float] | torch.Tensor = 0.5,
     scaler: torch.cuda.amp.GradScaler | None = None,
+    dry_run: bool = False,
+    binary_mode: bool = False,
 ) -> dict:
     """Chạy một epoch (train hoặc val/test).
 
@@ -265,6 +292,8 @@ def run_epoch(
         mode: "train" hoặc "val" hoặc "test"
         age_mean, age_std: Để denormalize tuổi khi tính MAE
         scaler: GradScaler cho mixed precision training
+        dry_run: Chỉ chạy 1 batch để kiểm thử
+        binary_mode: Chế độ phân loại nhị phân
 
     Returns:
         Dict chứa tất cả metrics của epoch.
@@ -274,10 +303,10 @@ def run_epoch(
 
     # Accumulators
     total_loss = total_cls = total_reg = 0.0
-    all_probs    = []   # [N, 8] sigmoid probabilities
-    all_targets  = []   # [N, 8] ground truth labels
-    all_age_pred = []   # [N] predicted age (normalized)
-    all_age_true = []   # [N] true age (normalized)
+    all_probs    = []   # sigmoid probabilities
+    all_targets  = []   # ground truth labels
+    all_age_pred = []   # predicted age (normalized)
+    all_age_true = []   # true age (normalized)
 
     it = enumerate(loader)
     if HAS_TQDM:
@@ -291,6 +320,13 @@ def run_epoch(
             labels   = batch["labels"].to(device)
             age_true = batch["age"].to(device)
 
+            if binary_mode:
+                # Cột 0 là Normal (1 nếu normal, 0 nếu có bệnh). 
+                # Đổi thành: 1 nếu có bệnh (pathological), 0 nếu bình thường
+                labels_cls = (labels[:, 0:1] == 0).float()
+            else:
+                labels_cls = labels
+
             # Auto mixed precision context (autocast)
             use_amp = (device.type == "cuda")
             with torch.cuda.amp.autocast(enabled=use_amp):
@@ -300,7 +336,7 @@ def run_epoch(
                 age_pred = output["age_pred"]
 
                 # Loss
-                loss, detail = criterion(logits, labels, age_pred, age_true)
+                loss, detail = criterion(logits, labels_cls, age_pred, age_true)
 
             if is_train and optimizer is not None:
                 optimizer.zero_grad()
@@ -323,11 +359,14 @@ def run_epoch(
 
             probs = torch.sigmoid(logits).detach().cpu().tolist()
             all_probs.extend(probs)
-            all_targets.extend(labels.detach().cpu().tolist())
+            all_targets.extend(labels_cls.detach().cpu().tolist())
             all_age_pred.extend(age_pred.squeeze(1).detach().cpu().tolist())
             all_age_true.extend(age_true.squeeze(1).detach().cpu().tolist())
 
-    n = len(loader.dataset)
+            if dry_run:
+                break
+
+    n = len(all_probs) if len(all_probs) > 0 else 1
     metrics = {
         f"{mode}_loss":     total_loss / n,
         f"{mode}_loss_cls": total_cls  / n,
@@ -338,12 +377,43 @@ def run_epoch(
     import torch as _t
     probs_t   = _t.FloatTensor(all_probs)
     targets_t = _t.FloatTensor(all_targets)
-    ml_metrics = compute_multilabel_metrics(probs_t, targets_t, threshold=threshold)
-    for k, v in ml_metrics.items():
-        metrics[f"{mode}_{k}"] = v
+    
+    if binary_mode:
+        thresh_val = threshold[0] if isinstance(threshold, list) else threshold
+        if isinstance(thresh_val, torch.Tensor):
+            thresh_val = thresh_val.item()
+        pred_binary = (probs_t >= thresh_val).float()
+        tp = (pred_binary * targets_t).sum().item()
+        fp = (pred_binary * (1 - targets_t)).sum().item()
+        fn = ((1 - pred_binary) * targets_t).sum().item()
+        tn = ((1 - pred_binary) * (1 - targets_t)).sum().item()
+        
+        precision = tp / (tp + fp + 1e-8)
+        recall = tp / (tp + fn + 1e-8)
+        f1 = 2 * precision * recall / (precision + recall + 1e-8)
+        accuracy = (pred_binary == targets_t).float().mean().item()
+        
+        metrics[f"{mode}_accuracy"] = accuracy
+        metrics[f"{mode}_precision_macro"] = precision
+        metrics[f"{mode}_recall_macro"] = recall
+        metrics[f"{mode}_f1_macro"] = f1
+    else:
+        ml_metrics = compute_multilabel_metrics(probs_t, targets_t, threshold=threshold)
+        for k, v in ml_metrics.items():
+            metrics[f"{mode}_{k}"] = v
 
     # AUC-ROC
-    metrics[f"{mode}_auc_roc"] = compute_auc_roc(all_probs, all_targets)
+    if binary_mode:
+        if not HAS_SKLEARN:
+            metrics[f"{mode}_auc_roc"] = -1.0
+        else:
+            import numpy as np
+            try:
+                metrics[f"{mode}_auc_roc"] = float(roc_auc_score(np.array(all_targets), np.array(all_probs)))
+            except:
+                metrics[f"{mode}_auc_roc"] = -1.0
+    else:
+        metrics[f"{mode}_auc_roc"] = compute_auc_roc(all_probs, all_targets)
 
     # Age metrics
     age_m = compute_mae_pearson(all_age_pred, all_age_true, age_mean, age_std)
@@ -357,6 +427,8 @@ def get_predictions(
     model: torch.nn.Module,
     loader: torch.utils.data.DataLoader,
     device: torch.device,
+    dry_run: bool = False,
+    binary_mode: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Thu thập toàn bộ sigmoid probabilities và targets từ DataLoader.
 
@@ -369,11 +441,17 @@ def get_predictions(
         for batch in loader:
             images = batch["image"].to(device)
             labels = batch["labels"].to(device)
+            if binary_mode:
+                labels_cls = (labels[:, 0:1] == 0).float()
+            else:
+                labels_cls = labels
             output = model(images)
             logits = output["logits"]
             probs = torch.sigmoid(logits).cpu().tolist()
             all_probs.extend(probs)
-            all_targets.extend(labels.cpu().tolist())
+            all_targets.extend(labels_cls.cpu().tolist())
+            if dry_run:
+                break
 
     return torch.FloatTensor(all_probs), torch.FloatTensor(all_targets)
 
@@ -412,10 +490,24 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
     print(f"[Data] Images: {img_dir}")
     print(f"[Output] Results: {results_dir}\n")
 
+    # --- Config binary_mode ---
+    binary_mode = cfg.get("binary_mode", False)
+
     # --- Metadata & pos_weight ---
     metadata_path = splits_dir / "metadata.json"
     metadata      = load_metadata(metadata_path)
-    pos_weight    = get_pos_weight_from_metadata(metadata)
+    
+    if binary_mode:
+        import pandas as pd
+        train_csv = splits_dir / "train.csv"
+        df_train = pd.read_csv(train_csv)
+        n_normal = int(df_train['N'].sum())
+        n_pathological = len(df_train) - n_normal
+        pos_weight = torch.FloatTensor([n_normal / max(n_pathological, 1)])
+        print(f"[Binary Mode] n_normal={n_normal}, n_pathological={n_pathological}, pos_weight={pos_weight.item():.2f}")
+    else:
+        pos_weight    = get_pos_weight_from_metadata(metadata)
+        
     age_mean      = metadata["age_stats"]["mean"]
     age_std       = metadata["age_stats"]["std"]
     print(f"[Metadata] age_mean={age_mean:.2f}, age_std={age_std:.2f}")
@@ -461,6 +553,7 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
     # --- Model ---
     m_cfg      = cfg["model"]
     model_type = cfg.get("model_type", "cnn")   # 'cnn' hoặc 'swin'
+    num_labels = 1 if binary_mode else 8
     model = build_model(
         model_type      = model_type,
         pretrained      = m_cfg.get("pretrained", True),
@@ -470,6 +563,7 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
         img_size        = tr_cfg.get("img_size", 224),     # Swin/ViT cần biết img_size
         variant         = m_cfg.get("variant", "tiny"),    # 'tiny'|'small'|'base'
         pretrained_path = m_cfg.get("pretrained_path", None), # Truyền đường dẫn trọng số pre-trained nếu có
+        num_labels      = num_labels,
     ).to(device)
     print(f"[Model] {model}\n")
 
@@ -478,25 +572,35 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
     criterion = MultiTaskLoss(
         pos_weight = pos_weight,
         lam        = l_cfg.get("lam", 0.1),
+        loss_type  = l_cfg.get("loss_type", "bce"),
+        gamma_neg  = l_cfg.get("gamma_neg", 4.0),
+        gamma_pos  = l_cfg.get("gamma_pos", 1.0),
+        clip       = l_cfg.get("clip", 0.05),
         device     = device,
     )
     print(f"[Loss]  {criterion}\n")
 
-    # --- Optimizer ---
-    o_cfg = cfg["optimizer"]
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr           = o_cfg.get("lr", 3e-4),
-        weight_decay = o_cfg.get("weight_decay", 0.01),
-    )
+    # --- Optimizer & Scheduler ---
+    epochs = tr_cfg["epochs"]
+    freeze_epochs = int(cfg['training'].get('freeze_epochs', 5))
 
-    # --- Scheduler ---
-    s_cfg     = cfg["scheduler"]
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max   = s_cfg.get("T_max", tr_cfg["epochs"]),
-        eta_min = s_cfg.get("eta_min", 1e-6),
-    )
+    if cfg['training'].get('two_stage', False):
+        # Khởi tạo tạm thời cho Stage 1 (Frozen) trước khi vào loop hoặc resume
+        model.freeze_backbone()
+        optimizer, scheduler = build_optimizer_and_scheduler(model, cfg, is_frozen=True, total_epochs=epochs)
+    else:
+        o_cfg = cfg["optimizer"]
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr           = o_cfg.get("lr", 3e-4),
+            weight_decay = o_cfg.get("weight_decay", 0.01),
+        )
+        s_cfg     = cfg["scheduler"]
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max   = s_cfg.get("T_max", epochs),
+            eta_min = s_cfg.get("eta_min", 1e-6),
+        )
 
     # --- Resume ---
     start_epoch    = 1
@@ -507,9 +611,33 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
         print(f"[Resume] Loading checkpoint: {resume}")
         ckpt       = torch.load(resume, map_location=device)
         model.load_state_dict(ckpt["model_state"])
-        optimizer.load_state_dict(ckpt["optimizer_state"])
-        scheduler.load_state_dict(ckpt["scheduler_state"])
+        
         start_epoch    = ckpt["epoch"] + 1
+        
+        if cfg['training'].get('two_stage', False):
+            ckpt_epoch = ckpt["epoch"]
+            ckpt_is_frozen = ckpt_epoch <= freeze_epochs
+            start_is_frozen = start_epoch <= freeze_epochs
+            
+            # Khởi tạo đúng Stage cho start_epoch trước khi nạp state
+            if start_is_frozen:
+                model.freeze_backbone()
+                optimizer, scheduler = build_optimizer_and_scheduler(model, cfg, is_frozen=True, total_epochs=epochs)
+            else:
+                model.unfreeze_backbone()
+                optimizer, scheduler = build_optimizer_and_scheduler(model, cfg, is_frozen=False, total_epochs=epochs)
+            
+            # Chỉ nạp optimizer/scheduler state nếu cùng stage
+            if ckpt_is_frozen == start_is_frozen:
+                optimizer.load_state_dict(ckpt["optimizer_state"])
+                scheduler.load_state_dict(ckpt["scheduler_state"])
+                print("  → Nạp thành công trạng thái optimizer và scheduler từ checkpoint.")
+            else:
+                print(f"  → Phát hiện chuyển giao Giai đoạn ({ckpt_epoch} -> {start_epoch}): Reset Optimizer và Scheduler sạch cho Stage 2.")
+        else:
+            optimizer.load_state_dict(ckpt["optimizer_state"])
+            scheduler.load_state_dict(ckpt["scheduler_state"])
+            
         best_val_f1    = ckpt.get("best_val_f1", 0.0)
         early_stop_cnt = ckpt.get("early_stop_cnt", 0)
         print(f"  → Tiếp tục từ epoch {start_epoch}, best_val_f1={best_val_f1:.4f}\n")
@@ -536,6 +664,22 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
 
     for epoch in range(start_epoch, n_epochs + 1):
         epoch_start = time.time()
+
+        # Logic kiểm tra chuyển giai đoạn (Transition Boundary)
+        if cfg['training'].get('two_stage', False):
+            if epoch <= freeze_epochs:
+                # Đang ở Stage 1
+                if epoch == start_epoch and not resume:  # Chỉ in/build lần đầu khi chạy từ đầu
+                    print(f"[STAGE 1] Đóng băng Backbone. Train MLP Heads với LR={cfg['training'].get('frozen_lr', 1e-3)}")
+                    model.freeze_backbone()
+                    optimizer, scheduler = build_optimizer_and_scheduler(model, cfg, is_frozen=True, total_epochs=epochs)
+            elif epoch == freeze_epochs + 1:
+                # Chuyển giao sang Stage 2
+                if epoch != start_epoch:  # Chỉ rebuild nếu không phải khôi phục trực tiếp từ Stage 2
+                    print(f"\n[STAGE 2] 🔓 Mở khóa toàn bộ mạng. Rebuild Optimizer với LR={cfg['training'].get('unfrozen_lr', 3e-5)}")
+                    model.unfreeze_backbone()
+                    optimizer, scheduler = build_optimizer_and_scheduler(model, cfg, is_frozen=False, total_epochs=epochs)
+
         current_lr  = optimizer.param_groups[0]["lr"]
 
         print(f"[Epoch {epoch:02d}/{n_epochs}]  lr={current_lr:.2e}")
@@ -544,12 +688,14 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
         train_m = run_epoch(
             model, dataloaders["train"], criterion, optimizer,
             device, "train", age_mean, age_std, scaler=scaler,
+            dry_run=dry_run, binary_mode=binary_mode
         )
 
         # Validate
         val_m = run_epoch(
             model, dataloaders["val"], criterion, None,
             device, "val", age_mean, age_std,
+            dry_run=dry_run, binary_mode=binary_mode
         )
 
         # Scheduler step
@@ -614,19 +760,24 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
 
         # 1. Tìm ngưỡng động tối ưu trên tập Validation
         print("[Dynamic Thresholding] Đang quét tìm ngưỡng tối ưu trên tập Validation...")
-        val_probs, val_targets = get_predictions(model, dataloaders["val"], device)
+        val_probs, val_targets = get_predictions(model, dataloaders["val"], device, binary_mode=binary_mode)
         best_thresholds = find_best_thresholds(val_probs, val_targets)
-        print("  → Ngưỡng tối ưu tìm được cho 8 bệnh lý:")
-        from src.utils import get_label_names
-        lbl_names = get_label_names()
-        for idx, lbl in enumerate(LABELS):
-            print(f"    - {lbl} ({lbl_names[lbl]}): {best_thresholds[idx]:.2f}")
-        print()
+        
+        if binary_mode:
+            print(f"  → Ngưỡng tối ưu tìm được cho phân loại nhị phân: {best_thresholds[0]:.2f}\n")
+        else:
+            print("  → Ngưỡng tối ưu tìm được cho 8 bệnh lý:")
+            from src.utils import get_label_names
+            lbl_names = get_label_names()
+            for idx, lbl in enumerate(LABELS):
+                print(f"    - {lbl} ({lbl_names[lbl]}): {best_thresholds[idx]:.2f}")
+            print()
 
         # 2. Đánh giá Test với ngưỡng mặc định 0.5
         test_m_default = run_epoch(
             model, dataloaders["test"], criterion, None,
-            device, "test", age_mean, age_std, threshold=0.5
+            device, "test", age_mean, age_std, threshold=0.5,
+            binary_mode=binary_mode
         )
         print(
             f"  [NGƯỠNG MẶC ĐỊNH 0.5] "
@@ -638,7 +789,8 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
         # 3. Đánh giá Test với ngưỡng động tối ưu vừa tìm được
         test_m_opt = run_epoch(
             model, dataloaders["test"], criterion, None,
-            device, "test", age_mean, age_std, threshold=best_thresholds
+            device, "test", age_mean, age_std, threshold=best_thresholds,
+            binary_mode=binary_mode
         )
         print(
             f"  [NGƯỠNG TỐI ƯU ĐỘNG]  "
