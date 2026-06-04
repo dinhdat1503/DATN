@@ -482,9 +482,50 @@ def train(config_path: str, dry_run: bool = False, resume: str | None = None) ->
 
     # --- Paths ---
     project_root = Path(config_path).parent.parent
-    splits_dir   = project_root / cfg["splits_dir"]
-    img_dir      = project_root / cfg["img_dir"]
-    results_dir  = setup_results_dir(project_root / cfg["output"]["results_dir"])
+    
+    # Auto-detect if we are running in Kaggle environment
+    is_kaggle = os.path.exists("/kaggle/working")
+    
+    # Resolve splits_dir
+    splits_dir = project_root / cfg["splits_dir"]
+    if is_kaggle or not splits_dir.exists():
+        for candidate in [
+            project_root / cfg["splits_dir"].replace("archive/", ""),
+            Path("/kaggle/working/code") / cfg["splits_dir"].replace("archive/", ""),
+            Path("/kaggle/working/code/splits_clean"),
+            Path("/kaggle/working/splits_clean"),
+        ]:
+            if candidate.exists():
+                splits_dir = candidate
+                break
+
+    # Resolve img_dir
+    img_dir = project_root / cfg["img_dir"]
+    if is_kaggle or not img_dir.exists():
+        if "Training Images" in str(cfg["img_dir"]):
+            for root, dirs, files in os.walk('/kaggle/input'):
+                if 'Training Images' in dirs:
+                    candidate = Path(root) / 'Training Images'
+                    if candidate.exists():
+                        img_dir = candidate
+                        break
+        else:
+            for candidate in [
+                project_root / cfg["img_dir"].replace("archive/", ""),
+                Path("/kaggle/working") / Path(cfg["img_dir"]).name,
+                Path("/kaggle/working/preprocessed_images"),
+                Path("/kaggle/working/enhanced_images"),
+            ]:
+                if candidate.exists():
+                    img_dir = candidate
+                    break
+
+    # Resolve results_dir
+    if is_kaggle:
+        rel_results = cfg["output"]["results_dir"].replace("results/", "")
+        results_dir = setup_results_dir(Path("/kaggle/working/results") / rel_results)
+    else:
+        results_dir = setup_results_dir(project_root / cfg["output"]["results_dir"])
 
     print(f"[Data] Splits: {splits_dir}")
     print(f"[Data] Images: {img_dir}")
