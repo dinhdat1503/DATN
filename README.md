@@ -1,141 +1,239 @@
-# ODIR-5K Multi-task Learning — Đồ Án Tốt Nghiệp
+# 🔬 ODIR-5K — Chẩn Đoán Bệnh Lý Nhãn Khoa Song Nhãn bằng Học Sâu
 
-**Đề tài**: Nghiên cứu và ứng dụng học sâu hỗ trợ chẩn đoán bệnh lý nhãn khoa và dự đoán tuổi sinh học từ ảnh đáy mắt
-
-**Sinh viên**: Ngô Đình Đạt — MSSV 2251161965 — Lớp 64HTTT2  
-**GVHD**: TS. Lê Thị Tú Kiên  
-**Trường**: Đại học Thuỷ Lợi — Khoa Công nghệ Thông tin
+> **Đề tài tốt nghiệp:** Nghiên cứu và ứng dụng học sâu hỗ trợ chẩn đoán bệnh lý nhãn khoa và dự đoán tuổi sinh học từ ảnh đáy mắt  
+> **Sinh viên:** Ngô Đình Đạt — Trường Đại học Thủy Lợi  
+> **GVHD:** TS. Lê Thị Tú Kiên  
 
 ---
 
-## Mô Tả
+## 📋 Tổng Quan
 
-Hệ thống AI đa nhiệm (Multi-task Learning) phân tích ảnh đáy mắt (fundus) từ bộ dữ liệu ODIR-5K:
-- **Task 1**: Phân loại đa nhãn 8 bệnh lý mắt (N, D, G, C, A, H, M, O)
-- **Task 2**: Dự đoán tuổi sinh học (Retinal Age)
+Hệ thống sử dụng kiến trúc **Mạng Siamese Song Nhãn Đa Nhiệm** để phân tích đồng thời ảnh đáy mắt trái và mắt phải của bệnh nhân, thực hiện hai nhiệm vụ:
 
-So sánh 2 kiến trúc: **EfficientNet-B0 (CNN)** vs **Swin Transformer**
+- **Phân loại nhị phân:** Bình thường (Normal) vs. Bệnh lý (Pathological)
+- **Hồi quy tuổi sinh học:** Ước lượng tuổi võng mạc (Retinal Age) và tính chỉ số Retinal Age Gap
+
+**Bộ dữ liệu:** [ODIR-5K](https://odir2019.grand-challenge.org/) — 3.343 bệnh nhân, 6.686 ảnh đáy mắt, bao gồm 7 nhóm bệnh lý: Diabetic Retinopathy (D), Glaucoma (G), Cataract (C), AMD (A), Hypertension (H), Myopia (M), Other (O).
 
 ---
 
-## Cấu Trúc Thư Mục
+## 🏗️ Kiến Trúc Hệ Thống
+
+```
+Mắt Trái [B,3,384,384]    Mắt Phải [B,3,384,384]
+        │                           │
+        ▼                           ▼
+┌─────────────────────────────────────────┐
+│        SHARED WEIGHTS BACKBONE          │
+│  EfficientNet-B0 (CNN) / Swin-Tiny      │
+└──────────┬──────────────────┬───────────┘
+           │                  │
+    Feat_L [B,D]        Feat_R [B,D]
+           │                  │
+     (×~missing_mask)   (×~missing_mask)
+           └──────────┬───────┘
+                      │ Concat [B, 2D]
+                      ▼
+             ┌────────────────┐
+             │   Fusion MLP   │ → 512 chiều
+             │ (LayerNorm+SiLU│
+             │   + Dropout)   │
+             └───────┬────────┘
+                ┌────┴────┐
+                ▼         ▼
+          CLS Head    REG Head
+         (Logits)   (Age Z-score)
+```
+
+**2 Backbone được so sánh:**
+| Backbone | Params | Feature Dim |
+|---|---|---|
+| EfficientNet-B0 (CNN) | ~5.3M | 1280 |
+| Swin Transformer-Tiny | ~28M | 768 |
+
+---
+
+## 🔬 Pipeline Tiền Xử Lý Ảnh
+
+```
+Ảnh gốc → ROI Crop (512×512) → Ben Graham Normalization → CLAHE → Model Input (384×384)
+```
+
+1. **ROI Crop:** Loại bỏ viền đen, chuẩn hóa kích thước 512×512
+2. **Ben Graham:** Trừ Gaussian Blur local + cộng 128 → chuẩn hóa ánh sáng không đồng đều
+3. **CLAHE:** Tăng tương phản cục bộ trên kênh L (không gian LAB)
+
+---
+
+## 📊 Kết Quả Ablation Study
+
+| EXP | Kiến trúc | Ảnh | Aug | Accuracy | AUC-ROC | F1 | Sensitivity | Specificity | Age MAE |
+|:---:|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| EXP 1 | EfficientNet-B0 | Raw | ❌ | 0.6614 | 0.7546 | 0.7099 | 0.6118 | 0.7654 | 8.02y |
+| EXP 2 | EfficientNet-B0 | Enhanced | ❌ | 0.6693 | 0.7911 | 0.6993 | 0.5676 | 0.8827 | 7.92y |
+| EXP 3 | EfficientNet-B0 | Enhanced | ✅ | 0.6912 | 0.7840 | 0.7446 | 0.6647 | 0.7469 | 7.74y |
+| EXP 4 | Swin-Tiny | Raw | ❌ | 0.7311 | 0.8200 | 0.7900 | 0.7471 | 0.6975 | 7.41y |
+| **EXP 5** ⭐ | **Swin-Tiny** | **Enhanced** | **❌** | **0.7629** | **0.8563** | **0.8046** | **0.7206** | **0.8519** | **7.96y** |
+| EXP 6 | Swin-Tiny | Enhanced | ✅ | 0.7291 | 0.8012 | 0.7695 | 0.6676 | 0.8580 | 7.58y |
+
+> ⭐ **Model tốt nhất:** EXP 5 (Swin-Tiny + Enhanced) — AUC-ROC = **0.856**, Accuracy = **76.3%**
+
+**Phân chia dữ liệu:** Train 2.340 / Val 501 / Test 502 bệnh nhân (theo Patient ID, không bị data leakage)
+
+---
+
+## 🗂️ Cấu Trúc Thư Mục
 
 ```
 DOANTOTNGHIEP/
+├── train.py                    # Entry-point huấn luyện (CLI)
+├── evaluate.py                 # So sánh 6 thực nghiệm → Ablation Study
 │
-├── archive/                            # DỮ LIỆU
-│   ├── ODIR-5K/                        #   Ảnh gốc (7,000 ảnh)
-│   ├── preprocessed_images/            #   Ảnh ROI Crop 512×512 (6,392 ảnh)
-│   ├── enhanced_images/                #   + Ben Graham + CLAHE (6,392 ảnh)
-│   └── splits_clean/                   #   CSV splits + metadata.json
-│       ├── train.csv                   #     4,462 ảnh (~70%)
-│       ├── val.csv                     #     948 ảnh (~15%)
-│       ├── test.csv                    #     954 ảnh (~15%)
-│       └── metadata.json              #     pos_weight, age_mean/std
+├── configs/                    # YAML config cho 6 thực nghiệm
+│   ├── exp_1_cnn_binary_raw.yaml
+│   ├── exp_2_cnn_binary_enhanced.yaml
+│   ├── exp_3_cnn_binary_enhanced_aug.yaml
+│   ├── exp_4_swin_binary_raw.yaml
+│   ├── exp_5_swin_binary_enhanced.yaml
+│   └── exp_6_swin_binary_enhanced_aug.yaml
 │
-├── configs/                            # CẤU HÌNH 6 THỰC NGHIỆM
-│   ├── exp_1_cnn_no_preprocess.yaml    #   EXP 1: CNN + ảnh gốc
-│   ├── exp_2_cnn_preprocess_no_aug.yaml#   EXP 2: CNN + enhanced
-│   ├── exp_3_cnn_preprocess_with_aug.yaml# EXP 3: CNN + enhanced + MixUp/CutMix
-│   ├── exp_4_swin_no_preprocess.yaml   #   EXP 4: Swin + ảnh gốc
-│   ├── exp_5_swin_preprocess_no_aug.yaml#  EXP 5: Swin + enhanced
-│   └── exp_6_swin_preprocess_with_aug.yaml# EXP 6: Swin + enhanced + MixUp/CutMix
-│
-├── src/                                # MODULES TRAINING
-│   ├── __init__.py                     #   Package exports
-│   ├── dataset.py                      #   ODIRDataset, get_dataloaders
-│   ├── transforms.py                   #   Albumentations (train/val, 224/384)
-│   ├── utils.py                        #   pos_weight, age norm, metrics
-│   ├── loss.py                         #   MultiTaskLoss (BCE + SmoothL1)
-│   ├── mixup.py                        #   MixUpCollator (α=0.4)
-│   ├── cutmix.py                       #   CutMixCollator (α=1.0)
+├── src/                        # Logic Deep Learning
+│   ├── config.py               # Load YAML, set_seed
+│   ├── dataset.py              # BinocularDataset (ghép cặp theo Patient ID)
+│   ├── transforms.py           # Albumentations augmentation
+│   ├── augment.py              # Binocular MixUp/CutMix đồng bộ
+│   ├── losses.py               # BinaryFocalLoss + MultiTaskLoss
+│   ├── metrics.py              # AUC/F1/Sensitivity/Specificity + Youden
+│   ├── engine.py               # Training loop + Early Stopping
 │   └── models/
-│       ├── __init__.py                 #   build_model(model_type='cnn'/'swin')
-│       ├── efficientnet_mtl.py         #   EfficientNet-B0 Multi-task
-│       └── swin_mtl.py                 #   Swin-Tiny Multi-task
+│       ├── backbone.py         # EfficientNet-B0 / Swin-Tiny (via timm)
+│       └── siamese.py          # BinocularClassifier (Siamese architecture)
 │
-├── scripts/                            # SCRIPTS TIỀN XỬ LÝ (chạy 1 lần)
-│   ├── preprocess_enhance.py           #   ROI Crop → Ben Graham → CLAHE
-│   ├── build_patient_splits.py         #   Patient-level split (chống leakage)
-│   ├── check_preprocessing.py          #   8 bài test QA tự động
-│   └── clean_and_rebuild.py            #   Loại tuổi bất thường, rebuild splits
+├── scripts/                    # Tiền xử lý dữ liệu (chạy 1 lần)
+│   ├── preprocess_enhance.py   # ROI Crop → Ben Graham → CLAHE
+│   └── build_patient_splits.py # Chia Train/Val/Test theo Patient ID
 │
-├── tests/                              # UNIT TESTS
-│   ├── test_mixup.py                   #   26 tests cho MixUpCollator
-│   └── test_cutmix.py                  #   37 tests cho CutMixCollator
+├── webapp/                     # Ứng dụng web Streamlit
+│   ├── app.py                  # Giao diện chính
+│   └── inference.py            # Pipeline inference + Grad-CAM
 │
-├── notebooks/                          # KAGGLE NOTEBOOKS
-│   ├── odir5k_cnn_kaggle.ipynb         #   Notebook chạy EXP 1-2-3 (CNN)
-│   └── kaggle_setup.md                 #   Hướng dẫn setup Kaggle từng bước
+├── notebooks/
+│   └── odir5k_binocular_kaggle.ipynb  # Notebook Kaggle
 │
-├── kaggle_upload/                      # UPLOAD CODE LÊN KAGGLE
-│   └── upload_code.sh                  #   Script tự động upload
+├── results/                    # Kết quả training
+│   ├── exp_1_cnn_binary_raw/
+│   │   ├── best_model.pth
+│   │   ├── test_results.json
+│   │   └── config.yaml
+│   ├── ... (exp_2 đến exp_6)
+│   └── comparison_table.md
 │
-├── docs/                               # TÀI LIỆU BÁO CÁO
-│   ├── De_cuong_DATN.pdf               #   Đề cương đồ án tốt nghiệp
-│   ├── decuong_extracted.txt            #   Nội dung đề cương (text)
-│   ├── Bao_cao_Tien_xu_ly_Du_lieu.md   #   Báo cáo tiền xử lý dữ liệu
-│   ├── Cong_nghe_Mo_hinh_Du_an.md      #   Công nghệ và mô hình
-│   ├── Giai_thich_Quy_trinh_Chi_tiet.md#   Giải thích pipeline chi tiết
-│   ├── Giai_thich_Code_Tien_xu_ly.md   #   Giải thích code preprocessing
-│   ├── Giai_thich_Dataset_ODIR.md      #   Giải thích dataset ODIR-5K
-│   ├── Y_nghia_Tien_xu_ly_Anh_Y_te.md  #   Ý nghĩa tiền xử lý ảnh y tế
-│   ├── Tac_dung_File_Python.md          #   Tác dụng các file Python
-│   ├── Tien_Do_Tong_Hop.md              #   Tổng hợp tiến độ
-│   ├── check_result_utf8.txt            #   Kết quả kiểm tra dữ liệu
-│   └── README_split.md                  #   Giải thích chia tập dữ liệu
-│
-├── results/                            # KẾT QUẢ TRAINING (tạo tự động)
-│
-├── train.py                            # ENTRY POINT — huấn luyện mô hình
-├── evaluate.py                         # SO SÁNH kết quả 6 thực nghiệm
-├── run_experiment.sh                   # AUTOMATION — chạy tuần tự các EXP
-├── .gitignore                          # Loại trừ data nặng, cache
-└── README.md                           # File này
+└── archive/                    # Dữ liệu (không push lên Git)
+    ├── ODIR-5K/.../Training Images/
+    ├── enhanced_images/
+    └── splits_clean/
+        ├── train.csv
+        ├── val.csv
+        ├── test.csv
+        └── metadata.json
 ```
 
 ---
 
-## Công Nghệ Sử Dụng
+## ⚙️ Thiết Kế Kỹ Thuật Nổi Bật
 
-| Thành phần | Công nghệ |
-|------------|-----------|
-| Ngôn ngữ | Python 3.9+ |
-| Framework DL | PyTorch, timm |
-| Xử lý ảnh | OpenCV, Albumentations |
-| Dữ liệu | pandas, numpy, scikit-learn |
-| Huấn luyện | Kaggle Notebooks (GPU T4) |
+### 1. Xử lý thiếu mắt (Missing Eye Handling)
+Bệnh nhân chỉ có 1 mắt → ảnh mắt thiếu được thay bằng **zero tensor**, kèm cờ `left_missing`/`right_missing`. Đặc trưng từ mắt thiếu được nhân với `(~missing).float()` trước khi concat, đảm bảo không có nhiễu.
+
+### 2. Hàm mất mát đa nhiệm
+```
+L_total = L_focal + 0.05 × L_age
+```
+- `L_focal`: Binary Focal Loss với α tự động theo tỷ lệ lớp, γ=2.0
+- `L_age`: Smooth L1 Loss trên tuổi Z-score
+
+### 3. Chiến lược huấn luyện Two-Stage
+- **Stage 1 (5 epoch):** Freeze backbone, chỉ train Fusion MLP + 2 head (LR=0.001)
+- **Stage 2 (35 epoch):** Unfreeze toàn bộ (LR=0.0001), Early Stopping theo AUC-ROC val
+
+### 4. Tăng cường dữ liệu đồng bộ song nhãn
+MixUp/CutMix được áp dụng **đồng thời** cho cả cặp ảnh (mắt trái + mắt phải) với cùng tham số λ, đảm bảo tính nhất quán sinh học.
+
+### 5. Hiệu chỉnh ngưỡng Youden Index
+```
+J = Sensitivity + Specificity - 1
+```
+Ngưỡng tối ưu được tìm trong một lượt validation, không cần inference lại.
 
 ---
 
-## Ma Trận 6 Thực Nghiệm (Ablation Study)
+## 🚀 Hướng Dẫn Sử Dụng
 
-|  | Ảnh gốc (Raw) | Enhanced (ROI+BG+CLAHE) | Enhanced + MixUp/CutMix |
-|--|---------------|------------------------|------------------------|
-| **EfficientNet-B0** | EXP 1 | EXP 2 | EXP 3 |
-| **Swin-Tiny** | EXP 4 | EXP 5 | EXP 6 |
-
-**So sánh:**
-- Dọc (EXP 1→2→3 hoặc 4→5→6): Đóng góp của tiền xử lý và augmentation
-- Ngang (EXP 3 vs 6): CNN vs Swin Transformer
-
----
-
-## Cách Chạy
-
-### Trên Kaggle (khuyến nghị):
+### Cài đặt môi trường
 ```bash
-# 1. Upload code lên Kaggle Dataset
-bash kaggle_upload/upload_code.sh
-
-# 2. Tạo notebook trên kaggle.com, gắn 2 datasets, bật GPU
-# 3. Upload notebooks/odir5k_cnn_kaggle.ipynb → Run All
+pip install torch torchvision timm albumentations opencv-python streamlit pandas scikit-learn
 ```
 
-### Trên local (chỉ test pipeline):
+### Huấn luyện mô hình
 ```bash
-source .venv/bin/activate
-python train.py --config configs/exp_1_cnn_no_preprocess.yaml
+# Dry-run kiểm tra lỗi (1 epoch)
+PYTHONPATH=./ python train.py --config configs/exp_5_swin_binary_enhanced.yaml --dry-run
+
+# Huấn luyện chính thức
+PYTHONPATH=./ python train.py --config configs/exp_5_swin_binary_enhanced.yaml
 ```
 
-Xem hướng dẫn chi tiết: [notebooks/kaggle_setup.md](notebooks/kaggle_setup.md)
+### Đánh giá và so sánh
+```bash
+PYTHONPATH=./ python evaluate.py --exps results/exp_4_swin_binary_raw results/exp_5_swin_binary_enhanced results/exp_6_swin_binary_enhanced_aug
+```
+
+### Chạy Web App
+```bash
+streamlit run webapp/app.py
+```
+
+Truy cập: `http://localhost:8501`
+
+---
+
+## 🌐 Web Application
+
+Ứng dụng Streamlit hỗ trợ:
+- **Upload ảnh:** Tải ảnh đáy mắt trái/phải
+- **Chọn model:** 6 thực nghiệm + 2 loại trọng số (best/last)
+- **Kết quả:** Xác suất bệnh lý, tuổi võng mạc, Retinal Age Gap
+- **Grad-CAM:** Bản đồ nhiệt trực quan hóa vùng bất thường
+- **Debug mode:** Hỗ trợ URL params `?left_file=...&right_file=...`
+
+---
+
+## 📚 Công Nghệ Sử Dụng
+
+| Thư viện | Mục đích |
+|---|---|
+| **PyTorch** | Framework học sâu chính |
+| **timm** | EfficientNet-B0, Swin-Tiny pretrained |
+| **Albumentations** | Tăng cường dữ liệu ảnh |
+| **OpenCV** | Tiền xử lý ROI, Ben Graham, CLAHE |
+| **scikit-learn** | Tính AUC-ROC, Youden Index |
+| **Streamlit** | Web app demo |
+| **Pandas** | Quản lý dataset splits |
+
+---
+
+## 📖 Tài Liệu Tham Khảo
+
+- Tan, M., & Le, Q. (2019). EfficientNet: Rethinking Model Scaling for CNNs. *ICML*.
+- Liu, Z., et al. (2021). Swin Transformer: Hierarchical Vision Transformer. *ICCV*.
+- Selvaraju, R. R., et al. (2017). Grad-CAM: Visual Explanations from Deep Networks. *ICCV*.
+- Zhang, H., et al. (2018). MixUp: Beyond Empirical Risk Minimization. *ICLR*.
+- Yun, S., et al. (2019). CutMix: Training Strategy using Guide to Cut and Paste. *ICCV*.
+- ODIR-5K Dataset: Ocular Disease Intelligent Recognition, Peking University.
+
+---
+
+## 📄 Giấy Phép
+
+Dự án phục vụ mục đích học thuật và nghiên cứu.  
+© 2026 Ngô Đình Đạt — Trường Đại học Thủy Lợi.

@@ -1,0 +1,16 @@
+{
+  "id": "nddat17/odir-5k-binocular-swin-exp-4-6",
+  "title": "ODIR-5K Binocular Swin (EXP 4-6)",
+  "code_file": "odir5k_binocular_swin.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [
+    "nddat17/odir5k-code",
+    "andrewmvd/ocular-disease-recognition-odir5k"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}

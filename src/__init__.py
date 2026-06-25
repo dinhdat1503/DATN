@@ -1,62 +1,32 @@
 """
-src — ODIR-5K training package.
+Package src cho ODIR-5K Phase 1 — Phân loại nhị phân Siamese song nhãn (Normal vs Pathological)
+kèm hồi quy tuổi võng mạc phụ trợ.
 
-Exports công khai:
-    Dataset & DataLoader
-        ODIRDataset, get_dataloaders
-
-    Augmentation Collators
-        MixUpCollator, get_mixup_dataloader
-        CutMixCollator, get_cutmix_dataloader
-
-    Transforms
-        get_transforms, get_train_transforms, get_val_transforms
-
-    Utilities
-        LABELS, LABEL_NAMES
-        compute_class_weights, compute_age_stats
-        normalize_age, denormalize_age
-        compute_multilabel_metrics
-        load_metadata, get_pos_weight_from_metadata
+Export công khai các thành phần chính để tiện import.
 """
 
-from src.dataset import ODIRDataset, get_dataloaders
-from src.mixup import MixUpCollator, get_mixup_dataloader
-from src.cutmix import CutMixCollator, get_cutmix_dataloader
-from src.transforms import get_transforms, get_train_transforms, get_val_transforms
-from src.utils import (
-    LABELS,
-    LABEL_NAMES,
-    compute_class_weights,
-    compute_age_stats,
-    normalize_age,
-    denormalize_age,
-    compute_multilabel_metrics,
-    load_metadata,
-    get_pos_weight_from_metadata,
-)
+from __future__ import annotations
+
+from src.augment import BinocularAugmentCollator
+from src.config import load_config, set_seed
+from src.dataset import BinocularDataset, build_dataloaders
+from src.engine import evaluate_test, fit, run_epoch
+from src.losses import BinaryFocalLoss, MultiTaskLoss
+from src.metrics import compute_binary_metrics, find_best_threshold
+from src.models import build_model
 
 __all__ = [
-    # Dataset
-    "ODIRDataset",
-    "get_dataloaders",
-    # Augmentation collators
-    "MixUpCollator",
-    "get_mixup_dataloader",
-    "CutMixCollator",
-    "get_cutmix_dataloader",
-    # Transforms
-    "get_transforms",
-    "get_train_transforms",
-    "get_val_transforms",
-    # Utilities
-    "LABELS",
-    "LABEL_NAMES",
-    "compute_class_weights",
-    "compute_age_stats",
-    "normalize_age",
-    "denormalize_age",
-    "compute_multilabel_metrics",
-    "load_metadata",
-    "get_pos_weight_from_metadata",
+    "BinocularAugmentCollator",
+    "load_config",
+    "set_seed",
+    "BinocularDataset",
+    "build_dataloaders",
+    "evaluate_test",
+    "fit",
+    "run_epoch",
+    "BinaryFocalLoss",
+    "MultiTaskLoss",
+    "compute_binary_metrics",
+    "find_best_threshold",
+    "build_model",
 ]

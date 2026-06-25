@@ -1,7 +1,7 @@
-# 📋 AGENT CONTEXT FILE — ODIR-5K Multi-task Learning
+# 📋 AGENT CONTEXT FILE — ODIR-5K Siamese Binocular Binary Classification (Phase 1)
 
 > **Mục đích:** Đây là tài liệu **Single Source of Truth** dành cho AI Coding Agent.  
-> Đọc file này = nắm toàn bộ kiến trúc, pipeline, kết quả, và quy ước của dự án.  
+> Đọc file này = nắm toàn bộ kiến trúc, pipeline, kết quả, và quy ước của dự án ở Giai đoạn 1 (Phase 1).  
 > **Không cần duyệt mã nguồn** trước khi bắt đầu làm việc.
 
 ---
@@ -9,16 +9,18 @@
 ## 0. Danh Tính Dự Án (Project Identity)
 
 | Thuộc tính | Giá trị |
-|---|---|
-| **Tên dự án** | ODIR-5K Multi-task Learning |
-| **Mục tiêu** | Phân loại 8 bệnh lý mắt (multi-label) + Dự đoán tuổi võng mạc (regression) |
-| **Bộ dữ liệu** | ODIR-5K (Ocular Disease Intelligent Recognition, 5.000 bệnh nhân, ~7.000 ảnh đáy mắt) |
-| **Framework** | PyTorch (pure) · Albumentations · timm · scikit-learn |
-| **Môi trường huấn luyện** | Kaggle Notebook (GPU T4/P100) |
-| **Môi trường phát triển** | Ubuntu Linux · Python 3.12 · VSCode |
-| **Backbone A** | EfficientNet-B0 (CNN, ~5.3M params, feature_dim=1280) |
-| **Backbone B** | Swin Transformer-Tiny (ViT, ~28M params, feature_dim=768) |
-| **Nhãn bệnh (8)** | `N` Normal · `D` Diabetes · `G` Glaucoma · `C` Cataract · `A` AMD · `H` Hypertension · `M` Myopia · `O` Other |
+21. |---|---|
+22. | **Tên dự án** | ODIR-5K Siamese Binocular Binary Classification |
+23. | **Mục tiêu** | Phân loại nhị phân Bình thường vs Bệnh lý (Normal vs Pathological) + Hồi quy tuổi võng mạc (Age Regression) |
+24. | **Kiến trúc** | Siamese Network (Mạng Xiêm) ghép cặp hai mắt đáy mắt (đầu vào song nhãn) |
+25. | **Bộ dữ liệu** | ODIR-5K (~7.000 ảnh đáy mắt, ghép cặp thành ~3.500 bệnh nhân có đủ mắt trái/mắt phải) |
+26. | **Tiêu chí thành công** | Đạt chỉ số kiểm thử trên Test Set: **Accuracy ≥ 90%**, **AUC-ROC ≥ 95%**, **F1-Score ≥ 90%**, **Sensitivity (Recall) ≥ 90%**, **Specificity ≥ 85%** |
+27. | **Framework** | PyTorch (pure) · Albumentations · timm · scikit-learn |
+28. | **Môi trường huấn luyện** | Kaggle Notebook (GPU T4 hoặc GPU P100) |
+29. | **Môi trường phát triển** | Ubuntu Linux · Python 3.12 · VSCode |
+30. | **Backbone A (CNN)** | EfficientNet-B0 (CNN, ~5.3M params, feature_dim=1280) |
+31. | **Backbone B (Swin)** | Swin Transformer-Tiny (ViT, ~28M params, feature_dim=768) |
+32. | **Nhãn phân loại (Binary)** | **0: Normal (Bình thường)** (Nếu cả hai mắt không có bệnh lý nào) · **1: Pathological (Bệnh lý)** (Nếu có ít nhất một mắt mắc bất kỳ bệnh lý nào trong 7 bệnh đáy mắt) |
 
 ---
 
@@ -26,435 +28,229 @@
 
 ```
 DOANTOTNGHIEP/
-├── train.py                    # ★ Entry-point huấn luyện chính
-├── evaluate.py                 # So sánh delta giữa các thực nghiệm
-├── predict.py                  # Inference đơn ảnh (ROI→BenGraham→CLAHE→Model)
-├── calculate_accuracy.py       # Tính Hamming/Subset Accuracy trên tập Test
-├── run_experiment.sh           # Shell script chạy batch thực nghiệm
+├── train.py                    # ★ Entry-point huấn luyện (CLI mỏng: load → fit → test)
+├── evaluate.py                 # So sánh 6 thực nghiệm → bảng Ablation Study
 │
-├── configs/                    # ★ YAML config cho 6 thực nghiệm
-│   ├── exp_1_cnn_no_preprocess.yaml
-│   ├── exp_2_cnn_preprocess_no_aug.yaml
-│   ├── exp_3_cnn_preprocess_with_aug.yaml        # CNN SOTA
-│   ├── exp_4_swin_no_preprocess.yaml
-│   ├── exp_5_swin_preprocess_no_aug.yaml
-│   └── exp_6_swin_preprocess_with_aug.yaml       # Swin SOTA ★
+├── configs/                    # ★ YAML config cho 6 thực nghiệm nhị phân song nhãn
+│   ├── exp_1_cnn_binary_raw.yaml            # CNN,  ảnh gốc,    không MixUp/CutMix
+│   ├── exp_2_cnn_binary_enhanced.yaml       # CNN,  enhanced,   không MixUp/CutMix
+│   ├── exp_3_cnn_binary_enhanced_aug.yaml   # CNN SOTA: enhanced + MixUp + CutMix ★
+│   ├── exp_4_swin_binary_raw.yaml           # Swin, ảnh gốc,    không MixUp/CutMix
+│   ├── exp_5_swin_binary_enhanced.yaml      # Swin, enhanced,   không MixUp/CutMix
+│   └── exp_6_swin_binary_enhanced_aug.yaml  # Swin SOTA: enhanced + MixUp + CutMix ★
 │
-├── src/                        # ★ Logic nghiệp vụ Deep Learning
+├── src/                        # ★ Logic Deep Learning (Phase 1 sạch — mỗi file 1 nhiệm vụ)
 │   ├── __init__.py             # Public exports
-│   ├── dataset.py              # ODIRDataset + get_dataloaders
-│   ├── transforms.py           # Albumentations pipeline (khóa Hue)
-│   ├── loss.py                 # MultiTaskLoss = BCE(pos_weight) + λ·SmoothL1
-│   ├── mixup.py                # MixUpCollator (trộn toàn cục α=0.4)
-│   ├── cutmix.py               # CutMixCollator (cắt dán cục bộ α=1.0)
-│   ├── utils.py                # LABELS, metrics, find_best_thresholds
+│   ├── config.py               # Load YAML, set_seed (reproducible), resolve path Kaggle/local
+│   ├── dataset.py              # ★ BinocularDataset (ghép cặp theo Patient ID, xử lý thiếu mắt) + build_dataloaders
+│   ├── transforms.py           # Albumentations (khóa Hue, không CLAHE online)
+│   ├── augment.py              # ★ Binocular MixUp/CutMix ĐỒNG BỘ trên cả 2 mắt
+│   ├── losses.py               # BinaryFocalLoss (soft-label) + MultiTaskLoss = Focal + λ_age·SmoothL1
+│   ├── metrics.py              # Acc/Precision/Sens/Spec/F1/AUC + find_best_threshold (Youden)
+│   ├── engine.py               # ★ run_epoch + fit (two-stage, early-stop AUC) + evaluate_test
 │   └── models/
-│       ├── __init__.py         # build_model() factory
-│       ├── efficientnet_mtl.py # EfficientNet-B0 + 2 heads MTL
-│       └── swin_mtl.py         # Swin-Tiny + 2 heads MTL
+│       ├── __init__.py         # build_model() → BinocularClassifier
+│       ├── backbone.py         # build_backbone('cnn'|'swin') qua timm → (module, feature_dim)
+│       └── siamese.py          # ★ BinocularClassifier (Siamese: backbone chia sẻ → fusion → 2 head)
 │
-├── scripts/                    # Tiện ích tiền xử lý
+├── scripts/                    # Tiền xử lý dữ liệu (chạy 1 lần — đã tạo enhanced_images)
 │   ├── preprocess_enhance.py   # ROI Crop → Ben Graham → CLAHE
-│   ├── build_patient_splits.py # Chia Train/Val/Test theo Patient ID
-│   ├── check_preprocessing.py  # Kiểm tra chất lượng ảnh sau xử lý
-│   ├── clean_and_rebuild.py    # Dọn dẹp và rebuild dữ liệu
-│   └── generate_augmentation_samples.py
+│   └── build_patient_splits.py # Chia Train/Val/Test theo Patient ID
 │
-├── notebooks/                  # Kaggle notebooks
-│   ├── odir5k_cnn_kaggle.ipynb
-│   ├── odir5k_swin_kaggle.ipynb
-│   └── kaggle_setup.md
+├── archive/                    # DỮ LIỆU (giữ nguyên)
+│   ├── ODIR-5K/.../Training Images   # Ảnh gốc raw
+│   ├── enhanced_images/             # Ảnh ROI+BenGraham+CLAHE
+│   └── splits_clean/                # train/val/test.csv + metadata.json
 │
-├── webapp/                     # Ứng dụng demo web
-│   ├── app.py                  # Gradio/Streamlit UI
-│   └── inference.py            # Inference pipeline cho webapp
+├── notebooks/
+│   └── odir5k_binocular_kaggle.ipynb # ★ Notebook chạy toàn bộ pipeline trên Kaggle
 │
-├── tests/                      # Unit tests
-│   ├── test_mixup.py
-│   └── test_cutmix.py
+├── kaggle_upload/upload_code.sh # Upload src/configs/splits/train.py/evaluate.py lên Kaggle Dataset
 │
-├── results/                    # Output huấn luyện (checkpoints, logs, metrics)
-│   ├── exp_1_cnn_preprocess_with_aug/
-│   ├── exp_2_cnn_preprocess_with_aug/
-│   ├── exp_3_cnn_preprocess_with_aug/    # ★ CNN best
-│   ├── exp_4_swin_no_preprocess/
-│   ├── exp_5_swin_no_preprocess/
-│   ├── exp_6_swin_preprocess_with_aug/   # ★ Swin best
-│   └── comparison_table.md
+├── results/                    # Output huấn luyện (checkpoints, logs, test_results.json, comparison_table.md)
 │
-├── docs/                       # Tài liệu & báo cáo
-│   ├── Bao_cao_Ablation_Study_CNN.md
-│   ├── Bao_cao_Ablation_Study_Swin.md
-│   ├── Bao_cao_Do_chinh_xac_Toan_dien.md
-│   ├── Bao_cao_Tien_xu_ly_Du_lieu.md
-│   ├── Bang_so_sanh_thuc_nghiem_toan_dien.md
-│   ├── bao_cao_chi_tiet_datn.md
-│   ├── giai_thich_code_huan_luyen.md
-│   ├── giai_thich_hai_mo_hinh.md
-│   ├── giai_thich_quy_trinh_xu_ly.md
-│   ├── giai_thich_run_experiment_notebook.md
-│   ├── giai_thich_tang_cuong_du_lieu.md
-│   ├── huong_dan_chi_tiet_ma_nguon.md
-│   └── De_cuong_DATN.pdf
+├── legacy_phase0/              # Code Phase 0 cũ (đa nhãn 8 bệnh) — lưu trữ tham khảo, KHÔNG import
 │
-├── archive/                    # Dữ liệu gốc & đã xử lý
-│   ├── ODIR-5K/                # Ảnh gốc
-│   ├── enhanced_images/        # Ảnh sau ROI+BenGraham+CLAHE
-│   └── splits_clean/           # train.csv, val.csv, test.csv, metadata.json
+├── docs/                       # Báo cáo & tài liệu học thuật
 │
 └── AGENT_GUIDE.md              # ← BẠN ĐANG ĐỌC FILE NÀY
 ```
 
 ---
 
-## 2. Kiến Trúc Mô Hình (Architecture Overview)
+## 2. Kiến Trúc Mạng Siamese (Architecture Overview)
 
-### 2.1. Sơ đồ kiến trúc Multi-task Learning
+Kiến trúc ghép cặp song nhãn trích xuất đặc trưng độc lập từ hai mắt sử dụng chung một Backbone chia sẻ trọng số (Weight Sharing Backbone), sau đó xử lý khuyết thiếu, ghép nối đặc trưng và đi qua Fusion MLP đa nhiệm.
 
 ```
-┌──────────────┐
-│  Input Image │    384×384×3 (Swin) hoặc 384×384×3 (CNN)
-└──────┬───────┘
-       │
-       ▼
-┌──────────────────────────────────┐
-│        SHARED BACKBONE           │
-│  ┌────────────────────────────┐  │
-│  │ EfficientNet-B0 (CNN)     │  │   feature_dim = 1280
-│  │    MBConv×7 + SE Attention│  │   ~5.3M params
-│  │ ─── HOẶC ───             │  │
-│  │ Swin-Tiny (Transformer)   │  │   feature_dim = 768
-│  │    Shifted Window Attn    │  │   ~28M params
-│  └────────────────────────────┘  │
-│         Global Avg Pool          │
-│              │                   │
-└──────────────┼───────────────────┘
-               │
-        features [B, dim]
-         ┌─────┴─────┐
-         │           │
-         ▼           ▼
-┌────────────┐ ┌────────────┐
-│ CLS Head   │ │ REG Head   │
-│ Dropout    │ │ Dropout    │
-│ Linear→8   │ │ Linear→1   │
-│ (Sigmoid)  │ │            │
-└─────┬──────┘ └─────┬──────┘
-      │               │
-      ▼               ▼
-  logits [B,8]    age_pred [B,1]
-  BCEWithLogits   SmoothL1Loss
-  (pos_weight)    (Huber, β=1.0)
-      │               │
-      └───────┬───────┘
-              ▼
-    Total Loss = L_cls + λ × L_reg    (λ = 0.1)
+                  ┌───────────────┐        ┌───────────────┐
+                  │  Mắt Trái     │        │  Mắt Phải     │
+                  │  [B, 3, H, W] │        │  [B, 3, H, W] │
+                  └───────┬───────┘        └───────┬───────┘
+                          │                        │
+                          ▼                        ▼
+                  ┌────────────────────────────────────────┐
+                  │      SHARED WEIGHTS BACKBONE           │
+                  │  (EfficientNet-B0 HOẶC Swin-Tiny)      │
+                  └───────┬────────────────────────┬───────┘
+                          │                        │
+               Đặc trưng  ▼             Đặc trưng  ▼
+               trái: [B, feature_dim]   phải: [B, feature_dim]
+                          │                        │
+                          ▼ (Áp dụng mặt nạ)       ▼ (Áp dụng mặt nạ)
+                   [Xử lý mắt thiếu: nhân với cờ ~missing]
+                          │                        │
+                          └───────────┬────────────┘
+                                      │
+                                      ▼ (Ghép nối đặc trưng)
+                             Concat: [B, 2 * feature_dim]
+                                      │
+                                      ▼
+                             ┌──────────────────┐
+                             │    Fusion MLP    │  -> Chiếu xuống 512 chiều
+                             │ (LayerNorm/SiLU) │  -> Dropout (0.3)
+                             └────────┬─────────┘
+                                      │
+                         Tích hợp đặc trưng: [B, 512]
+                               ┌──────┴──────┐
+                               │             │
+                               ▼             ▼
+                        ┌───────────┐ ┌───────────┐
+                        │ CLS Head  │ │ REG Head  │  -> Nhánh phụ trợ
+                        │  Linear   │ │  Linear   │  -> Hồi quy tuổi võng mạc
+                        └─────┬─────┘ └─────┬─────┘
+                              │             │
+                              ▼             ▼
+                         Logits [B,1]   Age Pred [B,1]
+                         Binary Focal   Smooth L1 Loss (λ_age = 0.05)
 ```
 
-### 2.2. Thông số kỹ thuật cốt lõi
-
-| Thành phần | CNN (EfficientNet-B0) | Swin (Transformer-Tiny) |
-|---|---|---|
-| **Feature dim** | 1280 | 768 |
-| **Params (approx.)** | ~5.3M | ~28M |
-| **Pretrained** | ImageNet-1K (torchvision/timm) | ImageNet-1K (timm) |
-| **Input size** | 384×384 | 384×384 |
-| **Batch size** | 16 | 8 |
-| **Optimizer** | AdamW (lr=1e-4, wd=0.01) | AdamW (lr=5e-5, wd=0.05) |
-| **Scheduler** | CosineAnnealingLR (T_max=45) | CosineAnnealingLR (T_max=45) |
-| **Epochs** | 45 (early stop patience=8) | 45 (early stop patience=8) |
-| **Dropout (cls/reg)** | 0.3 / 0.2 | 0.3 / 0.2 |
-| **Gradient clipping** | max_norm=1.0 | max_norm=1.0 |
+### Xử lý khuyết thiếu (Missing Eyes):
+Trong ODIR-5K, một số bệnh nhân bị thiếu ảnh một mắt (chỉ có mắt trái hoặc mắt phải). 
+* Để xử lý, hệ thống nạp ảnh mắt bị khuyết là ảnh đen (zero tensor) và cung cấp cờ boolean `left_missing` / `right_missing`.
+* Khi lan truyền tiến, đặc trưng trích xuất từ mắt bị khuyết sẽ nhân với `(~missing).float()` để ép hoàn toàn về `0` trước khi thực hiện ghép nối (concatenate), loại bỏ hoàn toàn nhiễu do ảnh giả gây ra.
 
 ---
 
-## 3. Pipeline Dữ Liệu (Data Pipeline)
+## 3. Pipeline Dữ Liệu & Tăng Cường Đồng Bộ
 
-### 3.1. Tiền xử lý tĩnh (offline, một lần)
+### 3.1. Tiền xử lý nâng cao (Offline)
+Tất cả ảnh đáy mắt gốc được chuẩn hóa thông qua bộ tiền xử lý tĩnh:
+1. **ROI Crop:** Định vị võng mạc, cắt bỏ viền đen không chứa thông tin chẩn đoán, đưa về kích thước 512x512.
+2. **Ben Graham Color Normalization:** Trừ trung bình cục bộ bằng Gaussian Blur rồi cộng 128 để triệt tiêuDevice Bias (sự khác biệt về ánh sáng của thiết bị chụp).
+3. **CLAHE:** Tăng tương phản cục bộ trên không gian màu LAB (kênh L) giúp nổi rõ mạch máu và đĩa thị giác.
 
-```
-Ảnh gốc ODIR-5K  ──►  ROI Crop (loại viền đen)
-                  ──►  Ben Graham (đồng nhất sáng, sigma=10)
-                  ──►  CLAHE (tăng tương phản cục bộ, clipLimit=2.0)
-                  ──►  Lưu vào archive/enhanced_images/
-```
-
-**Script:** `scripts/preprocess_enhance.py`
-
-### 3.2. Tiền xử lý động (runtime, mỗi batch)
-
-```
-Ảnh enhanced ──► Albumentations Pipeline:
-                 ├── Resize(384×384)
-                 ├── HorizontalFlip(p=0.5)
-                 ├── VerticalFlip(p=0.5)
-                 ├── ShiftScaleRotate(shift=0.05, scale=0.1, rotate=15°)
-                 ├── ColorJitter(brightness=0.2, contrast=0.2, sat=0.2, hue=0)  ← HUE LOCKED
-                 ├── GaussNoise(var=10-50)
-                 ├── Normalize(ImageNet mean/std)
-                 └── ToTensorV2
-```
-
-### 3.3. Augmentation nâng cao (batch-level, chỉ EXP 3 & 6)
-
-| Kỹ thuật | Alpha | Prob | Mô tả |
-|---|---|---|---|
-| **MixUp** | α=0.4 | 50% batch | Trộn tuyến tính 2 ảnh + nhãn (Zhang et al., 2018) |
-| **CutMix** | α=1.0 | 50% batch | Cắt vùng ngẫu nhiên từ ảnh B dán vào ảnh A (Yun et al., 2019) |
-| **WRS** | — | 100% | WeightedRandomSampler: over-sample bệnh hiếm |
-
-### 3.4. Chia dữ liệu (Data Splits)
-
-- **Chia theo Patient ID** (không rò rỉ dữ liệu giữa tập Train/Val/Test)
-- Tỷ lệ: **70% Train / 15% Val / 15% Test**
-- Lọc tuổi: loại bỏ 28 hồ sơ có `Patient Age < 5` (tuổi=1, dữ liệu nhiễu)
-- File: `archive/splits_clean/{train,val,test}.csv` + `metadata.json`
-- **Chuẩn hóa tuổi:** Z-score từ training set → `age_norm = (age - mean) / std`
+### 3.2. Tăng cường song nhãn đồng bộ (Binocular MixUp & CutMix)
+Để áp dụng MixUp và CutMix cho mạng Siamese, việc trộn ảnh phải diễn ra **đồng bộ**. Nghĩa là:
+* Nếu bệnh nhân A trộn với bệnh nhân B với tỷ lệ $\lambda$ (hoặc một vùng mặt nạ CutMix), thì **phép trộn tương tự phải được áp dụng đồng thời** cho cả cặp mắt trái của A/B và cặp mắt phải của A/B.
+* Module `src/binocular_augment.py` quản lý tiến trình này để đảm bảo tính nhất quán không gian sinh học giữa mắt trái và mắt phải của cùng một bệnh nhân sau khi trộn.
 
 ---
 
-## 4. Kết Quả Ablation Study (6 Thực Nghiệm)
+## 4. Danh Sách 6 Thực Nghiệm Phân Loại Nhị Phân
 
-### 4.1. Bảng tổng hợp metrics
+Bộ thử nghiệm Ablation Study của Giai đoạn 1 gồm 6 cấu hình tương đương 2 nhóm kiến trúc:
 
-| EXP | Backbone | Tiền xử lý | Aug (MixUp/CutMix/WRS) | Best Val F1 | Test F1 (θ=0.5) | Test F1 (θ tối ưu) | Test AUC-ROC | Test Age MAE |
-|:---:|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1** | EfficientNet-B0 | ❌ | ❌ | 0.5146 | 0.5248 | 0.5248 | 0.8071 | 7.81 năm |
-| **2** | EfficientNet-B0 | ✅ | ❌ | 0.5479 | 0.5368 | 0.5368 | 0.8124 | 7.54 năm |
-| **3** | EfficientNet-B0 | ✅ | ✅ | 0.5094 | 0.5492 | 0.5492 | **0.8395** | 7.59 năm |
-| **4** | Swin-Tiny | ❌ | ❌ | 0.5518 | 0.5509 | 0.5582 | 0.8190 | 7.79 năm |
-| **5** | Swin-Tiny | ✅ | ❌ | **0.5784** | 0.5537 | 0.5312 | 0.8205 | 7.65 năm |
-| **6** | Swin-Tiny | ✅ | ✅ | 0.5694 | **0.5718** | **0.5771** | 0.8125 | **7.48 năm** |
+### Nhóm 1: Backbone CNN (EfficientNet-B0)
+1. **`exp_1_cnn_binary_raw`:** Chạy trên ảnh gốc, không dùng tăng cường MixUp/CutMix.
+2. **`exp_2_cnn_binary_enhanced`:** Chạy trên ảnh đã tiền xử lý nâng cao, không dùng MixUp/CutMix.
+3. **`exp_3_cnn_binary_enhanced_aug`:** Chạy trên ảnh tiền xử lý nâng cao + trộn MixUp/CutMix đồng bộ.
 
-### 4.2. Kết luận thực nghiệm
-
-- **🏆 SOTA tổng thể:** EXP 6 (Swin + Preprocessing + MixUp/CutMix + WRS)
-  - Test F1-macro cao nhất: **0.5771** (ngưỡng tối ưu)
-  - Age MAE thấp nhất: **7.48 năm**
-- **🏆 AUC-ROC cao nhất:** EXP 3 (CNN Full Pipeline) đạt **0.8395**
-- **Delta tiền xử lý:** EXP 1→2 (CNN): AUC +0.0053, MAE −0.27 năm
-- **Delta augmentation:** EXP 5→6 (Swin): Test F1 +0.0459, chứng minh MixUp/CutMix điều hòa overfitting
-
-### 4.3. Accuracy đa nhãn (Tập Test, CNN EXP 3)
-
-| Metric | Giá trị | Ý nghĩa |
-|---|---|---|
-| **Hamming Accuracy** | 83.87% | Đoán đúng từng quyết định chẩn đoán (per-label) |
-| **Subset Accuracy** | 30.92% | Khớp hoàn toàn cả 8 nhãn đồng thời (rất khó) |
-
-**Accuracy per-label nổi bật (bệnh hiếm):**
-- Hypertension (H): **95.49%** · Myopia (M): **96.44%** · AMD (A): **93.08%**
-- → Chứng minh WRS thành công ngăn thiên vị lớp đa số
+### Nhóm 2: Backbone Swin Transformer (Swin-Tiny)
+4. **`exp_4_swin_binary_raw`:** Chạy trên ảnh gốc, không dùng tăng cường MixUp/CutMix.
+5. **`exp_5_swin_binary_enhanced`:** Chạy trên ảnh đã tiền xử lý nâng cao, không dùng MixUp/CutMix.
+6. **`exp_6_swin_binary_enhanced_aug`:** Chạy trên ảnh tiền xử lý nâng cao + trộn MixUp/CutMix đồng bộ.
 
 ---
 
 ## 5. Quyết Định Thiết Kế & Giải Thích Kỹ Thuật
 
-### 5.1. Tại sao khóa Hue (`hue_shift_limit=0`)?
+### 5.1. Tự động tính Focal Loss Alpha (`focal_alpha: auto`)
+* Để giải quyết vấn đề mất cân bằng lớp (756 mẫu Normal / 1584 mẫu Pathological trong tập Train), hệ thống tự động đếm số lượng mẫu của hai lớp trên tập huấn luyện thực tế và gán:
+  $$\alpha = \frac{N_{\text{normal}}}{N_{\text{normal}} + N_{\text{pathological}}}$$
+  Cho lớp Pathological và $1-\alpha$ cho lớp Normal. Điều này giúp loại bỏ hoàn toàn việc chỉnh tay $\alpha$ thủ công.
 
-> **Y sinh:** Màu đỏ trong nhãn khoa biểu thị xuất huyết (hemorrhages) và vi phình mạch. Nếu augment xoay Hue → đỏ thành vàng/xanh → mô hình mất khả năng nhận diện bệnh lý dựa trên màu sắc.
+### 5.2. Cân chỉnh ngưỡng Youden Index trong một lượt chạy (Single Pass Calibration)
+* Ngưỡng phân loại nhị phân tối ưu được tính toán động cuối mỗi epoch trên tập Validation bằng cách tối đa hóa chỉ số Youden:
+  $$J = \text{Sensitivity} + \text{Specificity} - 1$$
+* Nhằm tối ưu hiệu năng, việc thu thập dự đoán được thực hiện trực tiếp trong luồng validation của `run_epoch`. Sau khi kết thúc epoch, hàm `find_best_binary_threshold` sẽ tính toán và ghi đè các chỉ số tối ưu mà không cần chạy lại suy diễn (inference) một lần nữa.
 
-### 5.2. Tại sao dùng SmoothL1 (Huber) thay vì MSE/MAE cho tuổi?
+### 5.3. Giám sát AUC-ROC tập Validation cho Early Stopping
+* F1-score phụ thuộc vào một ngưỡng phân loại cụ thể và dễ dao động mạnh giữa các epoch đầu. Hệ thống chuyển sang giám sát **AUC-ROC tập Validation (`val_auc_roc`)** làm chỉ số quyết định dừng sớm (Early Stopping) giúp tiến trình huấn luyện học sâu ổn định hơn.
 
-> **Kỹ thuật:** Tuổi đã chuẩn hóa Z-score (mean≈0, std≈1). SmoothL1 = MSE khi |error|<1, = MAE khi |error|≥1 → ổn định gradient + robust với outlier tuổi cực trị.
-
-### 5.3. Tại sao λ = 0.1 cho regression loss?
-
-> **Cân bằng:** BCE loss ~0.3–1.5, SmoothL1 ~0.2–1.0. Với λ=0.1, đóng góp regression ~10% tổng loss → task phân loại bệnh là ưu tiên chính, tuổi là phụ trợ.
-
-### 5.4. Tại sao AUC-ROC (0.81–0.84) >> F1-macro (0.55–0.58)?
-
-> **Metrics:** AUC đánh giá **xếp hạng xác suất** trên toàn dải ngưỡng [0,1] → phản ánh backbone trích xuất đặc trưng rất tốt. F1-macro thấp hơn vì bị **mất cân bằng nhãn** ảnh hưởng mạnh khi áp dụng ngưỡng cứng 0.5 lên bệnh hiếm.
-
-### 5.5. Tại sao EXP 5 (Swin, tiền xử lý, không aug) overfitting?
-
-> **Hiện tượng:** Val F1 cao nhất (0.5784) nhưng Test F1 thấp (0.5312 ở ngưỡng tối ưu). Swin ~28M params dễ ghi nhớ chi tiết ảnh enhanced nếu thiếu regularization. EXP 6 thêm MixUp/CutMix → Test F1 tăng +0.0459.
-
-### 5.6. Tại sao tiền xử lý cải thiện Age MAE?
-
-> **Cơ chế:** ROI Crop loại viền đen, Ben Graham đồng nhất sáng → triệt tiêu Device Bias (sai số do thiết bị chụp khác nhau) → mô hình tập trung phân tích đặc trưng lão hóa tự nhiên → MAE giảm từ 7.81 xuống 7.48 năm.
+### 5.4. Khóa kênh màu Hue trong ColorJitter (`hue_shift_limit=0`)
+* Các tổn thương y khoa võng mạc như xuất huyết có màu đỏ đặc trưng. Việc xoay góc Hue có thể đổi màu đỏ thành màu xanh/vàng, phá hủy đặc trưng lâm sàng khiến mô hình bị nhiễu.
 
 ---
 
 ## 6. Quy Ước Mã Nguồn (Code Conventions)
 
-### 6.1. Output format của model
-
+### 6.1. Định dạng Output của Mô hình
+Mô hình `BinocularClassifier` luôn trả về một Python dictionary chứa logits phân loại nhị phân và age regression:
 ```python
-output = model(images)  # images: [B, 3, 384, 384]
+output = model(
+    left_image=left_img,    # Tensor [B, 3, 384, 384]
+    right_image=right_img,  # Tensor [B, 3, 384, 384]
+    left_missing=left_miss, # Tensor [B] (boolean)
+    right_missing=right_miss# Tensor [B] (boolean)
+)
 # output = {
-#     "logits":   Tensor[B, 8],   # raw logits, chưa sigmoid
-#     "age_pred": Tensor[B, 1],   # tuổi đã chuẩn hóa Z-score
+#     "logits": Tensor[B, 1],    # Logit thô của lớp Pathological (chưa qua sigmoid)
+#     "age_pred": Tensor[B, 1]   # Tuổi dự đoán đã chuẩn hóa Z-score
 # }
 ```
 
-### 6.2. Loss computation
-
+### 6.2. Định dạng mẫu dữ liệu đầu ra từ DataLoader
+Mỗi batch dữ liệu tải từ `BinocularDataset` (file `src/dataset.py`) có dạng:
 ```python
-from src.loss import MultiTaskLoss
-criterion = MultiTaskLoss(pos_weight=pos_weight_tensor, lam=0.1, device="cuda")
-total_loss, detail = criterion(logits, labels, age_pred, age_true)
-# detail = {"loss_total": float, "loss_cls": float, "loss_reg": float, "lam": 0.1}
-```
-
-### 6.3. Dataset sample format
-
-```python
-sample = dataset[idx]
-# sample = {
-#     "image":    FloatTensor[3, H, W],   # ảnh đã transform
-#     "labels":   FloatTensor[8],          # multi-hot [N,D,G,C,A,H,M,O]
-#     "age":      FloatTensor[1],          # tuổi chuẩn hóa Z-score
-#     "filename": str,                     # tên file ảnh
+batch = next(iter(train_loader))
+# batch = {
+#     "left_image": Tensor[B, 3, H, W],
+#     "right_image": Tensor[B, 3, H, W],
+#     "left_missing": Tensor[B] (boolean),
+#     "right_missing": Tensor[B] (boolean),
+#     "labels": Tensor[B, 1],           # Nhãn nhị phân: 0 (Normal) hoặc 1 (Pathological)
+#     "age": Tensor[B, 1],              # Tuổi đã chuẩn hóa Z-score
+#     "patient_id": list[str]           # ID bệnh nhân tương ứng
 # }
-```
-
-### 6.4. Config YAML structure
-
-```yaml
-experiment_name: str
-model_type: "cnn" | "swin"
-splits_dir: "archive/splits_clean"
-img_dir: "archive/enhanced_images"
-model:
-  pretrained: true
-  variant: "tiny"          # (Swin only)
-  freeze_backbone: false
-  dropout_cls: 0.3
-  dropout_reg: 0.2
-loss:
-  lam: 0.1
-training:
-  img_size: 384
-  batch_size: 8 | 16
-  epochs: 45
-  early_stopping_patience: 8
-  use_weighted_sampler: true
-optimizer: { name: AdamW, lr: float, weight_decay: float }
-scheduler: { name: CosineAnnealingLR, T_max: int, eta_min: float }
-augmentation:
-  use_mixup: true/false
-  use_cutmix: true/false
-  mixup_alpha: 0.4
-  cutmix_alpha: 1.0
-output:
-  results_dir: "results/exp_X_..."
-  save_best_model: true
-```
-
-### 6.5. Checkpoint format
-
-```python
-checkpoint = {
-    "epoch": int,
-    "model_state": OrderedDict,
-    "optimizer_state": dict,
-    "scheduler_state": dict,
-    "best_val_f1": float,
-    "val_metrics": dict,      # (best model only)
-    "early_stop_cnt": int,    # (last model only)
-    "config": dict,
-}
 ```
 
 ---
 
-## 7. Lệnh Nhanh cho Agent (Quick Commands)
+## 7. Các Lệnh Huấn Luyện & Đánh Giá Nhanh (Quick CLI Commands)
 
-> **Lưu ý:** Tất cả lệnh chạy từ thư mục gốc dự án (`DOANTOTNGHIEP/`).  
-> Trên Kaggle, thay `PYTHONPATH` bằng `!pip install timm albumentations scikit-learn`.
+*Lưu ý: Luôn chạy lệnh từ thư mục gốc dự án.*
 
-### 7.1. Huấn luyện
-
+### 7.1. Chạy thử nghiệm nhanh (Dry-Run 1 Epoch để kiểm tra lỗi)
 ```bash
-# Chạy huấn luyện EXP 3 (CNN Full Pipeline)
-PYTHONPATH=.venv/lib/python3.12/site-packages python3 train.py --config configs/exp_3_cnn_preprocess_with_aug.yaml
-
-# Chạy dry-run để test pipeline (1 epoch)
-PYTHONPATH=.venv/lib/python3.12/site-packages python3 train.py --config configs/exp_6_swin_preprocess_with_aug.yaml --dry-run
-
-# Resume training từ checkpoint
-PYTHONPATH=.venv/lib/python3.12/site-packages python3 train.py --config configs/exp_3_cnn_preprocess_with_aug.yaml --resume results/exp_3_cnn_preprocess_with_aug/last_model.pth
+PYTHONPATH=./ python3 train.py --config configs/exp_6_swin_binary_enhanced_aug.yaml --dry-run
 ```
 
-### 7.2. Dự đoán đơn ảnh
-
+### 7.2. Huấn luyện chính thức
 ```bash
-PYTHONPATH=.venv/lib/python3.12/site-packages python3 predict.py --image "archive/ODIR-5K/ODIR-5K/Training Images/0_left.jpg"
+PYTHONPATH=./ python3 train.py --config configs/exp_6_swin_binary_enhanced_aug.yaml
 ```
 
-### 7.3. Đánh giá Accuracy
-
+### 7.3. Khôi phục huấn luyện từ checkpoint
 ```bash
-# CNN (EXP 3) — ngưỡng mặc định 0.5
-PYTHONPATH=.venv/lib/python3.12/site-packages python3 calculate_accuracy.py --model cnn
-
-# Swin (EXP 6) — ngưỡng tối ưu động
-PYTHONPATH=.venv/lib/python3.12/site-packages python3 calculate_accuracy.py --model swin --threshold-mode optimal
+PYTHONPATH=./ python3 train.py --config configs/exp_6_swin_binary_enhanced_aug.yaml --resume results/exp_6_swin_binary_enhanced_aug/last_model.pth
 ```
 
-### 7.4. Chạy unit tests
-
+### 7.4. Đánh giá và so sánh Ablation Study giữa các thực nghiệm
 ```bash
-PYTHONPATH=.venv/lib/python3.12/site-packages python3 -m pytest tests/ -v
+PYTHONPATH=./ python3 evaluate.py --exps results/exp_4_swin_binary_raw results/exp_5_swin_binary_enhanced results/exp_6_swin_binary_enhanced_aug --results-dir results
 ```
 
 ---
 
-## 8. Ràng Buộc & Lưu Ý Quan Trọng
+## 8. Hằng số bắt buộc khóa cứng (Hard Constraints)
 
 > [!CAUTION]
-> **Không được thay đổi** các hằng số sau mà không cập nhật toàn bộ pipeline:
-> - `LABELS = ["N", "D", "G", "C", "A", "H", "M", "O"]` trong `src/utils.py`
-> - `num_labels = 8` trong các model constructor
-> - `age_min_filter = 5` trong `ODIRDataset`
-
-> [!WARNING]
-> **Kaggle-specific:**
-> - Swin-Tiny cần `timm` library. Nếu không có timm → fallback mini-ViT (chỉ test pipeline, không train thật).
-> - EfficientNet-B0 có 3 fallback: torchvision → timm → pure PyTorch (random init).
-> - `num_workers` nên đặt 4 trên Kaggle, 0 trên local nếu gặp lỗi multiprocessing.
-
-> [!IMPORTANT]
-> **Quy tắc chia dữ liệu:** Train/Val/Test **phải chia theo Patient ID** (file `build_patient_splits.py`), không được chia ngẫu nhiên theo ảnh — vì 1 bệnh nhân có 2 ảnh (mắt trái + phải).
+> **Không được tự ý sửa đổi các hằng số sau:**
+> * Định dạng nhãn nhị phân: Lớp `0` là Normal, Lớp `1` là Pathological.
+> * Tuổi tối thiểu để lọc dữ liệu: `age_min_filter = 5` (để tránh nhiễu do trẻ sơ sinh chụp võng mạc).
+> * Hệ số liên kết hàm loss đa nhiệm: `lam_age = 0.05` trong các file cấu hình YAML.
 
 ---
 
-## 9. Dependencies (Thư Viện Bắt Buộc)
-
-| Thư viện | Version tối thiểu | Vai trò |
-|---|---|---|
-| `torch` | ≥2.0 | Framework DL chính |
-| `torchvision` | ≥0.15 | Pretrained EfficientNet-B0 |
-| `timm` | ≥0.9 | Pretrained Swin Transformer |
-| `albumentations` | ≥1.3 | Augmentation pipeline |
-| `scikit-learn` | ≥1.2 | AUC-ROC computation |
-| `pandas` | ≥2.0 | Đọc CSV, xử lý metadata |
-| `opencv-python` | ≥4.7 | Đọc và xử lý ảnh |
-| `pyyaml` | ≥6.0 | Đọc config YAML |
-| `tqdm` | ≥4.65 | Progress bar (optional) |
-
----
-
-## 10. Chỉ Mục Tài Liệu Chi Tiết (Documentation Index)
-
-Nếu cần đi sâu vào một chủ đề cụ thể, tham khảo các báo cáo sau:
-
-| Tài liệu | Mô tả |
-|---|---|
-| `docs/Bao_cao_Ablation_Study_CNN.md` | Phân tích chi tiết 3 thực nghiệm CNN (EXP 1–3) |
-| `docs/Bao_cao_Ablation_Study_Swin.md` | Phân tích chi tiết 3 thực nghiệm Swin (EXP 4–6) |
-| `docs/Bao_cao_Do_chinh_xac_Toan_dien.md` | Báo cáo Hamming/Subset Accuracy toàn diện |
-| `docs/Bao_cao_Tien_xu_ly_Du_lieu.md` | Giải thích pipeline ROI→BenGraham→CLAHE |
-| `docs/Bang_so_sanh_thuc_nghiem_toan_dien.md` | Bảng so sánh 6 EXP |
-| `docs/bao_cao_chi_tiet_datn.md` | Báo cáo tổng thể đồ án tốt nghiệp |
-| `docs/giai_thich_code_huan_luyen.md` | Giải thích từng dòng code `train.py` |
-| `docs/giai_thich_hai_mo_hinh.md` | So sánh EfficientNet vs Swin Transformer |
-| `docs/giai_thich_quy_trinh_xu_ly.md` | Quy trình xử lý dữ liệu end-to-end |
-| `docs/giai_thich_tang_cuong_du_lieu.md` | Giải thích MixUp, CutMix, WRS |
-| `docs/huong_dan_chi_tiet_ma_nguon.md` | Hướng dẫn chi tiết mã nguồn |
-| `notebooks/kaggle_setup.md` | Hướng dẫn cài đặt chạy trên Kaggle |
-
----
-
-*Phiên bản: 2.0 · Cập nhật: 2026-06-03 · Tối ưu cho AI Agent context ingestion.*
+*Phiên bản: 4.0 (Giai đoạn 1 — viết lại sạch từ đầu) · Cập nhật: 2026-06-05 · Cấu trúc: `src/{config,dataset,transforms,augment,losses,metrics,engine}.py` + `src/models/{backbone,siamese}.py`. Code Phase 0 cũ lưu tại `legacy_phase0/`.*

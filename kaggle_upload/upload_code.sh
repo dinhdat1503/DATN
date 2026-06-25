@@ -27,8 +27,6 @@ cp -r "$PROJECT_ROOT/src"                  "$UPLOAD_DIR/src"
 cp -r "$PROJECT_ROOT/configs"              "$UPLOAD_DIR/configs"
 cp    "$PROJECT_ROOT/train.py"             "$UPLOAD_DIR/"
 cp    "$PROJECT_ROOT/evaluate.py"          "$UPLOAD_DIR/"
-cp    "$PROJECT_ROOT/confusion_analysis.py" "$UPLOAD_DIR/"
-cp    "$PROJECT_ROOT/ensemble_evaluate.py"  "$UPLOAD_DIR/"
 
 # Copy splits_clean vào cùng package
 echo "[3/6] Copy splits_clean..."
@@ -40,10 +38,13 @@ find "$UPLOAD_DIR" -type f | wc -l
 # ------ Bước 3: Tạo dataset-metadata.json ------
 echo "[4/6] Tạo dataset-metadata.json..."
 # Lấy username từ dòng '- username: ngodinhdatcpp' → cột thứ 3
-KAGGLE_USER=$(kaggle config view | grep 'username' | awk '{print $3}')
+# Ưu tiên biến môi trường KAGGLE_USER (cần khi dùng token mới ~/.kaggle/access_token
+# vì không có username trong config); nếu không có thì lấy từ kaggle config view (creds legacy).
+KAGGLE_USER="${KAGGLE_USER:-$(kaggle config view 2>/dev/null | grep 'username' | awk '{print $3}')}"
 if [ -z "$KAGGLE_USER" ]; then
-    echo "  ERROR: Chưa cấu hình Kaggle API key!"
-    echo "  Xem hướng dẫn: notebooks/kaggle_setup.md"
+    echo "  ERROR: Không xác định được username Kaggle!"
+    echo "  Cách 1 (token mới): chạy 'KAGGLE_USER=<tên> bash kaggle_upload/upload_code.sh'"
+    echo "  Cách 2 (creds legacy): cấu hình ~/.config/kaggle/kaggle.json — xem notebooks/kaggle_setup.md"
     exit 1
 fi
 
