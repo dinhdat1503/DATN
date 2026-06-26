@@ -1,0 +1,28 @@
+{
+  "experiment": "exp_3_cnn_binary_enhanced_aug",
+  "best_val_auc": 0.772915983830438,
+  "optimal_threshold": 0.5300000000000001,
+  "metrics_threshold_0.5": {
+    "test_loss": 0.08008143086119952,
+    "test_loss_cls": 0.06324846351767827,
+    "test_loss_reg": 0.336659352380441,
+    "test_accuracy": 0.7071713147410359,
+    "test_precision": 0.8163934425961838,
+    "test_sensitivity": 0.7323529411549308,
+    "test_specificity": 0.6543209876139308,
+    "test_f1": 0.7720930182465959,
+    "test_auc": 0.7840050835148874,
+    "test_age_mae": 7.73860687220132,
+    "test_age_pearson": 0.5101298697496973
+  },
+  "metrics_threshold_optimal": {
+    "test_accuracy": 0.6912350597609562,
+    "test_precision": 0.846441947533841,
+    "test_sensitivity": 0.664705882333391,
+    "test_specificity": 0.7469135802008078,
+    "test_f1": 0.7446457940593135,
+    "test_auc": 0.7840050835148874,
+    "test_age_mae": 7.73860687220132,
+    "test_age_pearson": 0.5101298697496973
+  }
+}

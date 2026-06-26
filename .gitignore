@@ -10,13 +10,15 @@ __pycache__/
 .vscode/
 *.swp
 
+# Weights (quá nặng >100MB, không commit lên GitHub)
+*.pth
+*.pt
+checkpoint*.pth
+
 # Data (quá nặng, không commit)
 archive/ODIR-5K/
 archive/preprocessed_images/
 archive/enhanced_images/
-
-# Results (tạo lại khi train)
-results/
 
 # Kaggle upload staging
 kaggle_upload/odir5k-code/

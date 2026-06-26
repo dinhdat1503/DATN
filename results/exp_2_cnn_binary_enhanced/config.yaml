@@ -1,0 +1,43 @@
+# ============================================================
+# EXP 2 — EfficientNet-B0 (CNN) | Siamese nhị phân | Ảnh ENHANCED
+# CNN + ảnh tiền xử lý (ROI Crop + Ben Graham + CLAHE), không MixUp/CutMix.
+# ============================================================
+experiment_name: exp_2_cnn_binary_enhanced
+description: "EXP 2 — CNN Siamese nhị phân | Ảnh enhanced, không tăng cường"
+model_type: cnn
+
+splits_dir: archive/splits_clean
+img_dir: archive/enhanced_images
+
+model:
+  pretrained: true
+  dropout: 0.3
+
+loss:
+  focal_alpha: auto
+  focal_gamma: 2.0
+  lam_age: 0.05
+
+training:
+  img_size: 384
+  batch_size: 8
+  gradient_accumulation_steps: 2
+  num_workers: 4
+  epochs: 40
+  early_stopping_patience: 10
+  seed: 42
+  age_min_filter: 5
+  two_stage: true
+  freeze_epochs: 5
+  frozen_lr: 0.001
+  unfrozen_lr: 0.0001
+  weight_decay: 0.01
+  eta_min: 0.000001
+
+augmentation:
+  use_mixup: false
+  use_cutmix: false
+
+output:
+  results_dir: results/exp_2_cnn_binary_enhanced
+  save_best_model: true

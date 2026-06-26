@@ -1,0 +1,28 @@
+{
+  "experiment": "exp_5_swin_binary_enhanced",
+  "best_val_auc": 0.8453239375068282,
+  "optimal_threshold": 0.8100000000000002,
+  "metrics_threshold_0.5": {
+    "test_loss": 0.1608718381489653,
+    "test_loss_cls": 0.143327529288015,
+    "test_loss_reg": 0.35088619132678345,
+    "test_accuracy": 0.7828685258964143,
+    "test_precision": 0.8489425981616634,
+    "test_sensitivity": 0.8264705882109862,
+    "test_specificity": 0.6913580246486816,
+    "test_f1": 0.8375558817121498,
+    "test_auc": 0.8562999273783588,
+    "test_age_mae": 7.961607718808045,
+    "test_age_pearson": 0.5414378483163443
+  },
+  "metrics_threshold_optimal": {
+    "test_accuracy": 0.7629482071713147,
+    "test_precision": 0.9107806691111233,
+    "test_sensitivity": 0.7205882352729238,
+    "test_specificity": 0.8518518517992684,
+    "test_f1": 0.8045976961909616,
+    "test_auc": 0.8562999273783588,
+    "test_age_mae": 7.961607718808045,
+    "test_age_pearson": 0.5414378483163443
+  }
+}
